@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { call, type Status } from "./api";
 import { ErrorNotice, Screen } from "./components/common";
 import { poll } from "./errors";
+import { Approvals } from "./screens/Approvals";
 import { Home } from "./screens/Home";
 import { Identity } from "./screens/Identity";
 import { BackupCheck, CreateWallet, ImportWallet, Welcome } from "./screens/Onboarding";
@@ -34,6 +35,13 @@ export function App() {
       setError(e);
     }
   }, []);
+
+  // The service worker opens this page in its own window when a site asks for something.
+  const approvalWindow = location.hash === "#approve";
+  const approvalsDone = useCallback(() => {
+    if (approvalWindow) window.close();
+    else void refresh();
+  }, [approvalWindow, refresh]);
 
   // Follows auto-lock and scanning without a reload.
   useEffect(() => poll(refresh, 3_000), [refresh]);
@@ -80,6 +88,8 @@ export function App() {
     );
   } else if (!status.unlocked) {
     body = <Unlock status={status} onUnlocked={go("home")} onRestore={() => setView("import")} />;
+  } else if (view === "home" && (status.approvals > 0 || approvalWindow)) {
+    body = <Approvals onDone={approvalsDone} />;
   } else if (view === "send") {
     body = <Send network={status.network ?? "chipnet"} onBack={go("home")} />;
   } else if (view === "receive") {

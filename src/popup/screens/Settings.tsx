@@ -18,12 +18,13 @@ export function Settings({
   onChanged: () => void;
 }) {
   const [section, setSection] = useState<
-    "main" | "phrase" | "password" | "servers" | "contacts" | "wallets"
+    "main" | "phrase" | "password" | "servers" | "contacts" | "wallets" | "sites"
   >("main");
   const back = () => setSection("main");
   if (section === "phrase") return <RevealPhrase onBack={back} />;
   if (section === "password") return <ChangePassword onBack={back} />;
   if (section === "servers") return <Servers onBack={back} />;
+  if (section === "sites") return <Sites onBack={back} />;
   if (section === "contacts")
     return <Contacts network={status.network ?? "chipnet"} onBack={back} />;
   if (section === "wallets")
@@ -40,6 +41,9 @@ export function Settings({
         <button type="button" className="wide" onClick={() => setSection("contacts")}>
           Address book
         </button>
+        <button type="button" className="wide" onClick={() => setSection("sites")}>
+          Connected sites
+        </button>
         <button type="button" className="wide" onClick={() => setSection("phrase")}>
           Show recovery phrase
         </button>
@@ -51,6 +55,69 @@ export function Settings({
         </button>
         <AutoLock minutes={status.autoLockMinutes} onSaved={onChanged} />
       </div>
+    </Screen>
+  );
+}
+
+type Site = Extract<ResponseFor["SITES_LIST"], { ok: true }>["sites"][number];
+
+/** Sites that may read the Nostr key, and the event kinds they may have signed without asking. */
+function Sites({ onBack }: { onBack: () => void }) {
+  const [sites, setSites] = useState<Site[] | null>(null);
+  const [error, setError] = useState<unknown>(null);
+  const load = useCallback(async () => {
+    try {
+      setSites((await call({ type: "SITES_LIST" })).sites);
+    } catch (e) {
+      setError(e);
+    }
+  }, []);
+  useEffect(() => {
+    let current = true;
+    call({ type: "SITES_LIST" }).then(
+      (r) => current && setSites(r.sites),
+      (e: unknown) => current && setError(e),
+    );
+    return () => {
+      current = false;
+    };
+  }, []);
+  return (
+    <Screen title="Connected sites" back={onBack}>
+      <ErrorNotice error={error} />
+      {sites && sites.length === 0 && (
+        <p className="muted small">No site can use your Nostr key without asking.</p>
+      )}
+      {sites && sites.length > 0 && (
+        <ul className="list" aria-label="Connected sites">
+          {sites.map((site) => (
+            <li key={site.origin}>
+              <span className="stack">
+                <code>{site.origin}</code>
+                <span className="small muted">
+                  {site.kinds.length === 0
+                    ? "Reads your public key; asks before signing"
+                    : `Signs event kind${site.kinds.length === 1 ? "" : "s"} ${site.kinds.join(", ")} without asking`}
+                </span>
+              </span>
+              <button
+                type="button"
+                className="icon"
+                onClick={async () => {
+                  try {
+                    await call({ type: "SITE_REMOVE", origin: site.origin });
+                    await load();
+                  } catch (e) {
+                    setError(e);
+                  }
+                }}
+              >
+                Disconnect
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
     </Screen>
   );
 }

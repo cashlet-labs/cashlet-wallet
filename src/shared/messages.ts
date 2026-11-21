@@ -7,6 +7,7 @@
  * messages as JSON, so token amounts travel as decimal strings.
  */
 import type { BchNetwork } from "@cashlet-labs/bnd";
+import type { ApprovalView } from "../background/sites";
 
 export interface RecipientMessage {
   address: string;
@@ -46,7 +47,11 @@ export type Request =
   | { type: "IDENTITY_ROTATE"; key: "bch" | "nostr" }
   | { type: "IDENTITY_REVOKE"; password: string }
   | { type: "IDENTITY_PUBLIC_RELAYS"; enabled: boolean }
-  | { type: "RESOLVE_PAYEE"; target: string };
+  | { type: "RESOLVE_PAYEE"; target: string }
+  | { type: "APPROVALS_LIST" }
+  | { type: "APPROVAL_DECIDE"; id: string; approve: boolean; remember: boolean }
+  | { type: "SITES_LIST" }
+  | { type: "SITE_REMOVE"; origin: string };
 
 export type RequestType = Request["type"];
 
@@ -82,6 +87,8 @@ export interface ResponseFor {
     scan: "idle" | "scanning" | "ready" | "error";
     scanError: string | null;
     autoLockMinutes: number;
+    /** Site requests waiting for the user. */
+    approvals: number;
   };
   CREATE_WALLET: { ok: true; id: string; mnemonic: string };
   IMPORT_WALLET: { ok: true; id: string };
@@ -121,6 +128,10 @@ export interface ResponseFor {
   IDENTITY_REVOKE: { ok: true; accepted: string[] };
   IDENTITY_PUBLIC_RELAYS: { ok: true };
   RESOLVE_PAYEE: { ok: true; address: string; tokenAddress: string; did: string; npub: string };
+  APPROVALS_LIST: { ok: true; approvals: ApprovalView[]; npub: string | null };
+  APPROVAL_DECIDE: { ok: true };
+  SITES_LIST: { ok: true; sites: { origin: string; kinds: number[]; connectedAt: number }[] };
+  SITE_REMOVE: { ok: true };
   SERVER_HEALTH: {
     ok: true;
     current: string | null;
@@ -219,6 +230,8 @@ export function parseRequest(value: unknown): Request | { error: string } {
     case "SERVER_HEALTH":
     case "IDENTITY_STATUS":
     case "IDENTITY_BIND":
+    case "APPROVALS_LIST":
+    case "SITES_LIST":
       return hasKeys(v, ["type"]) ? ({ type: v.type } as Request) : bad;
     case "VERIFY_BINDING":
       if (!hasKeys(v, ["type", "event"])) return bad;
@@ -320,6 +333,18 @@ export function parseRequest(value: unknown): Request | { error: string } {
     case "RESOLVE_PAYEE":
       return hasKeys(v, ["type", "target"]) && text(v.target, 200) && isPayeeTarget(v.target)
         ? { type: "RESOLVE_PAYEE", target: v.target }
+        : bad;
+    case "APPROVAL_DECIDE":
+      return hasKeys(v, ["type", "id", "approve", "remember"]) &&
+        typeof v.id === "string" &&
+        /^[0-9a-f]{32}$/.test(v.id) &&
+        typeof v.approve === "boolean" &&
+        typeof v.remember === "boolean"
+        ? { type: "APPROVAL_DECIDE", id: v.id, approve: v.approve, remember: v.remember }
+        : bad;
+    case "SITE_REMOVE":
+      return hasKeys(v, ["type", "origin"]) && text(v.origin, 300)
+        ? { type: "SITE_REMOVE", origin: v.origin }
         : bad;
     default:
       return { error: `unknown message type: ${v.type}` };

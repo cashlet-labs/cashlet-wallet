@@ -1,13 +1,18 @@
 import {
   createBinding,
+  createLoginResponse,
   createKeySigner,
   createNostrKeySigner,
   createRevocation,
   createSuccessor,
   npubEncode,
+  signEvent,
+  type AuthChallenge,
   type BchNetwork,
+  type LoginResponse,
   type IdentityState,
   type NostrEvent,
+  type UnsignedEvent,
   type VerifiedBinding,
 } from "@cashlet-labs/bnd";
 import { didOf } from "@cashlet-labs/bnd/did";
@@ -240,6 +245,34 @@ export class Identity {
     const published = await this.publish(binding);
     await this.settings.set(this.keysKey, next);
     return published;
+  }
+
+  /** The identity's Nostr public key (hex). Needs no network. */
+  async nostrPublicKey(): Promise<string> {
+    return this.wallet.nostrKey((await this.keys()).nostrAccount).publicKey;
+  }
+
+  /** Sign a Nostr event with the identity's current Nostr key, for a site the user approved. */
+  async signNostrEvent(template: UnsignedEvent): Promise<NostrEvent> {
+    const { nostrAccount } = await this.keys();
+    return signEvent(this.wallet.nostrKey(nostrAccount).privateKey, template);
+  }
+
+  /**
+   * Answer a site's BND login challenge with the current binding. `origin` is
+   * the page's origin as the browser reports it; the challenge must be for it.
+   */
+  async login(challenge: AuthChallenge, origin: string): Promise<LoginResponse> {
+    const binding = await this.current();
+    const { nostrSigner, bchSigner } = this.signers(await this.keys());
+    return createLoginResponse({
+      challenge,
+      binding: binding.event,
+      nostrSigner,
+      ...(challenge.level === "dual" ? { bchSigner, proofType: "message" as const } : {}),
+      expectedOrigin: origin,
+      now: this.now,
+    });
   }
 
   /** End the identity. After this, logins and payments by this identity are refused. */

@@ -37,8 +37,15 @@ describe("manifest.json", () => {
   it("asks only for the permissions it uses, and exposes nothing to web pages", () => {
     expect(manifest.permissions.sort()).toEqual(["alarms", "sidePanel", "storage"]);
     expect(manifest.host_permissions).toBeUndefined();
-    expect(manifest.content_scripts).toBeUndefined();
     expect(manifest.externally_connectable).toBeUndefined();
     expect(manifest.web_accessible_resources).toBeUndefined();
+  });
+
+  it("injects the page API on https pages and local development pages only, top frame only", () => {
+    const pages = ["https://*/*", "http://localhost/*", "http://127.0.0.1/*"];
+    expect(manifest.content_scripts).toEqual([
+      { matches: pages, js: ["src/content/inpage.ts"], run_at: "document_start", world: "MAIN" },
+      { matches: pages, js: ["src/content/bridge.ts"], run_at: "document_start" },
+    ]);
   });
 });

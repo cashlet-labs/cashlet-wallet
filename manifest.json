@@ -12,6 +12,19 @@
     "service_worker": "src/background/service-worker.ts",
     "type": "module"
   },
+  "content_scripts": [
+    {
+      "matches": ["https://*/*", "http://localhost/*", "http://127.0.0.1/*"],
+      "js": ["src/content/inpage.ts"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": ["https://*/*", "http://localhost/*", "http://127.0.0.1/*"],
+      "js": ["src/content/bridge.ts"],
+      "run_at": "document_start"
+    }
+  ],
   "action": {
     "default_title": "Cashlet",
     "default_popup": "src/popup/index.html",

@@ -159,3 +159,54 @@ test("identity shows the wallet's Nostr key and the address it names", async ({ 
   await expect(popup.getByTestId("identity-state")).not.toBeEmpty();
   await expect(popup.getByLabel(/Also publish to public Nostr relays/)).toBeChecked();
 });
+
+test("a site gets the Nostr key and a signature only after the user approves", async ({
+  context,
+  popup,
+}) => {
+  await importVector(popup);
+  await context.route("https://app.example/**", (route) =>
+    route.fulfill({ contentType: "text/html", body: "<!doctype html><title>App</title>" }),
+  );
+  const site = await context.newPage();
+  await site.goto("https://app.example/");
+  expect(await site.evaluate(() => typeof (window as { nostr?: unknown }).nostr)).toBe("object");
+
+  // getPublicKey opens the approval window.
+  const approval = context.waitForEvent("page");
+  const key = site.evaluate(() =>
+    (window as unknown as { nostr: { getPublicKey(): Promise<string> } }).nostr.getPublicKey(),
+  );
+  const window1 = await approval;
+  await expect(window1.getByTestId("approval-origin")).toHaveText("https://app.example");
+  await window1.getByRole("button", { name: "Connect" }).click();
+  expect(await key).toMatch(/^[0-9a-f]{64}$/);
+
+  // Each answered request closes the window; the next request opens a new one.
+  await window1.waitForEvent("close");
+  const approval2 = context.waitForEvent("page");
+  const signing = site.evaluate(() =>
+    (
+      window as unknown as { nostr: { signEvent(e: unknown): Promise<{ sig: string }> } }
+    ).nostr.signEvent({ kind: 1, content: "hello from e2e", tags: [], created_at: 1_795_200_000 }),
+  );
+  const window2 = await approval2;
+  await expect(window2.getByTestId("event-content")).toHaveText("hello from e2e");
+  await window2.getByRole("button", { name: "Sign" }).click();
+  expect((await signing).sig).toMatch(/^[0-9a-f]{128}$/);
+
+  // A rejection reaches the page as an error.
+  await window2.waitForEvent("close");
+  const approval3 = context.waitForEvent("page");
+  const rejected = site.evaluate(() =>
+    (window as unknown as { nostr: { signEvent(e: unknown): Promise<unknown> } }).nostr
+      .signEvent({ kind: 1, content: "no", tags: [], created_at: 1_795_200_000 })
+      .then(
+        () => "signed",
+        (e: Error) => e.message,
+      ),
+  );
+  const window3 = await approval3;
+  await window3.getByRole("button", { name: "Reject" }).click();
+  expect(await rejected).toBe("the user rejected the request");
+});
