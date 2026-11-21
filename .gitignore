@@ -1,0 +1,14 @@
+node_modules/
+dist/
+coverage/
+*.tgz
+.env
+.env.*
+!.env.example
+
+# Packed extension builds.
+*.zip
+*.crx
+
+# Local notes and plans, never committed.
+*.local.md
