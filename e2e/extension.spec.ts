@@ -1,50 +1,20 @@
-import { test as base, chromium, expect, type BrowserContext, type Worker } from "@playwright/test";
-import { fileURLToPath } from "node:url";
+import { expect, test } from "./fixtures";
 
-const extensionPath = fileURLToPath(new URL("../dist", import.meta.url));
-
-/** A browser with the built extension loaded, and its service worker. */
-const test = base.extend<{ context: BrowserContext; worker: Worker; extensionId: string }>({
-  // eslint-disable-next-line no-empty-pattern
-  context: async ({}, use) => {
-    const context = await chromium.launchPersistentContext("", {
-      channel: "chromium",
-      args: [`--disable-extensions-except=${extensionPath}`, `--load-extension=${extensionPath}`],
-    });
-    await use(context);
-    await context.close();
-  },
-  worker: async ({ context }, use) => {
-    const worker = context.serviceWorkers()[0] ?? (await context.waitForEvent("serviceworker"));
-    await use(worker);
-  },
-  extensionId: async ({ worker }, use) => {
-    await use(new URL(worker.url()).host);
-  },
-});
-
-test("the service worker starts and the popup reaches it", async ({ context, extensionId }) => {
+test("the service worker starts and the popup reaches it", async ({ popup }) => {
   const errors: string[] = [];
-  const page = await context.newPage();
-  page.on("pageerror", (error) => errors.push(error.message));
-  page.on("console", (message) => {
-    if (message.type() === "error") errors.push(message.text());
+  popup.on("pageerror", (error) => errors.push(error.message));
+  await popup.reload();
+  await expect(popup.getByRole("heading", { name: "Your keys, your Bitcoin Cash" })).toBeVisible();
+  expect(await popup.evaluate(() => chrome.runtime.sendMessage({ type: "PING" }))).toEqual({
+    ok: true,
+    bindingKind: 30078,
   });
-  await page.goto(`chrome-extension://${extensionId}/src/popup/index.html`);
-  await expect(page.getByRole("status")).toHaveText(
-    /Wallet service running · BND binding kind 30078/,
-  );
   expect(errors).toEqual([]);
 });
 
-test("the service worker refuses malformed and unknown messages", async ({
-  context,
-  extensionId,
-}) => {
-  const page = await context.newPage();
-  await page.goto(`chrome-extension://${extensionId}/src/popup/index.html`);
+test("the service worker refuses malformed and unknown messages", async ({ popup }) => {
   const reply = (message: unknown) =>
-    page.evaluate((m) => chrome.runtime.sendMessage(m), message as object);
+    popup.evaluate((m) => chrome.runtime.sendMessage(m), message as object);
   expect(await reply({ type: "NOPE" })).toEqual({ ok: false, error: "unknown message type: NOPE" });
   expect(await reply({ type: "PING", extra: 1 })).toEqual({ ok: false, error: "malformed PING" });
   expect(await reply({ type: "VERIFY_BINDING", event: { kind: 1 } })).toEqual({
@@ -65,12 +35,9 @@ test("a web page cannot reach the service worker", async ({ context }) => {
 });
 
 test("creates, locks and unlocks a wallet, and stores no recovery phrase in the clear", async ({
-  context,
-  extensionId,
+  popup,
 }) => {
-  const page = await context.newPage();
-  await page.goto(`chrome-extension://${extensionId}/src/popup/index.html`);
-  const send = (message: object) => page.evaluate((m) => chrome.runtime.sendMessage(m), message);
+  const send = (message: object) => popup.evaluate((m) => chrome.runtime.sendMessage(m), message);
 
   const created = (await send({
     type: "CREATE_WALLET",
@@ -83,7 +50,7 @@ test("creates, locks and unlocks a wallet, and stores no recovery phrase in the 
   expect(created.ok).toBe(true);
   expect(created.mnemonic.split(" ")).toHaveLength(12);
 
-  const stored = JSON.stringify(await page.evaluate(() => chrome.storage.local.get(null)));
+  const stored = JSON.stringify(await popup.evaluate(() => chrome.storage.local.get(null)));
   expect(stored).toContain('"kdf":"PBKDF2-SHA256"');
   expect(stored).not.toContain(created.mnemonic.split(" ").slice(0, 3).join(" "));
   expect(stored).not.toContain("e2e password");

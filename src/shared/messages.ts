@@ -39,7 +39,8 @@ export type Request =
   | { type: "REMOVE_WALLET"; walletId: string; password: string }
   | { type: "RENAME_WALLET"; walletId: string; name: string }
   | { type: "SET_AUTO_LOCK"; minutes: number }
-  | { type: "SERVER_HEALTH" };
+  | { type: "SERVER_HEALTH" }
+  | { type: "CONFIRM_BACKUP"; walletId: string };
 
 export type RequestType = Request["type"];
 
@@ -67,7 +68,7 @@ export interface ResponseFor {
     | { ok: false; reason: string };
   STATUS: {
     ok: true;
-    wallets: { id: string; name: string; network: BchNetwork }[];
+    wallets: { id: string; name: string; network: BchNetwork; backedUp: boolean }[];
     activeId: string | null;
     unlocked: boolean;
     retryAfter: number;
@@ -98,6 +99,7 @@ export interface ResponseFor {
   REMOVE_WALLET: { ok: true };
   RENAME_WALLET: { ok: true };
   SET_AUTO_LOCK: { ok: true };
+  CONFIRM_BACKUP: { ok: true };
   SERVER_HEALTH: {
     ok: true;
     current: string | null;
@@ -259,6 +261,10 @@ export function parseRequest(value: unknown): Request | { error: string } {
     case "RENAME_WALLET":
       return hasKeys(v, ["type", "walletId", "name"]) && text(v.walletId, 64) && text(v.name, 40)
         ? { type: "RENAME_WALLET", walletId: v.walletId, name: v.name }
+        : bad;
+    case "CONFIRM_BACKUP":
+      return hasKeys(v, ["type", "walletId"]) && text(v.walletId, 64)
+        ? { type: "CONFIRM_BACKUP", walletId: v.walletId }
         : bad;
     case "SET_AUTO_LOCK":
       return hasKeys(v, ["type", "minutes"]) &&

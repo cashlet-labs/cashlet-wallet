@@ -1,0 +1,359 @@
+import { useCallback, useEffect, useState } from "react";
+import type { ResponseFor } from "../../shared/messages";
+import { call, type Status } from "../api";
+import { CopyButton, ErrorNotice, NewPassword, Screen } from "../components/common";
+import { deleteContact, loadContacts, saveContact, type Contact } from "../contacts";
+
+type Health = Extract<ResponseFor["SERVER_HEALTH"], { ok: true }>;
+
+export function Settings({
+  status,
+  onBack,
+  onAddWallet,
+  onChanged,
+}: {
+  status: Status;
+  onBack: () => void;
+  onAddWallet: () => void;
+  onChanged: () => void;
+}) {
+  const [section, setSection] = useState<
+    "main" | "phrase" | "password" | "servers" | "contacts" | "wallets"
+  >("main");
+  const back = () => setSection("main");
+  if (section === "phrase") return <RevealPhrase onBack={back} />;
+  if (section === "password") return <ChangePassword onBack={back} />;
+  if (section === "servers") return <Servers onBack={back} />;
+  if (section === "contacts")
+    return <Contacts network={status.network ?? "chipnet"} onBack={back} />;
+  if (section === "wallets")
+    return (
+      <Wallets status={status} onBack={back} onAddWallet={onAddWallet} onChanged={onChanged} />
+    );
+
+  return (
+    <Screen title="Settings" back={onBack}>
+      <div className="stack">
+        <button type="button" className="wide" onClick={() => setSection("wallets")}>
+          Wallets
+        </button>
+        <button type="button" className="wide" onClick={() => setSection("contacts")}>
+          Address book
+        </button>
+        <button type="button" className="wide" onClick={() => setSection("phrase")}>
+          Show recovery phrase
+        </button>
+        <button type="button" className="wide" onClick={() => setSection("password")}>
+          Change password
+        </button>
+        <button type="button" className="wide" onClick={() => setSection("servers")}>
+          Network servers
+        </button>
+        <AutoLock minutes={status.autoLockMinutes} onSaved={onChanged} />
+      </div>
+    </Screen>
+  );
+}
+
+function AutoLock({ minutes, onSaved }: { minutes: number; onSaved: () => void }) {
+  return (
+    <label>
+      Lock automatically after
+      <select
+        value={minutes}
+        onChange={async (e) => {
+          await call({ type: "SET_AUTO_LOCK", minutes: Number(e.target.value) });
+          onSaved();
+        }}
+      >
+        {[1, 5, 15, 30, 60, 240].map((m) => (
+          <option key={m} value={m}>
+            {m < 60 ? `${m} minute${m === 1 ? "" : "s"}` : `${m / 60} hour${m === 60 ? "" : "s"}`}{" "}
+            of inactivity
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+function RevealPhrase({ onBack }: { onBack: () => void }) {
+  const [password, setPassword] = useState("");
+  const [words, setWords] = useState<string[] | null>(null);
+  const [error, setError] = useState<unknown>(null);
+  if (words) {
+    return (
+      <Screen title="Recovery phrase" back={onBack}>
+        <p className="notice warning">Anyone who sees these words can take your money.</p>
+        <ol className="phrase-grid show" style={{ margin: 0, padding: 0, listStyle: "none" }}>
+          {words.map((word, i) => (
+            <li key={i} className="word">
+              <span className="n">{i + 1}</span>
+              <span className="static">{word}</span>
+            </li>
+          ))}
+        </ol>
+        <button type="button" className="wide" onClick={() => setWords(null)}>
+          Hide
+        </button>
+      </Screen>
+    );
+  }
+  return (
+    <Screen title="Show recovery phrase" back={onBack}>
+      <form
+        className="stack"
+        onSubmit={async (e) => {
+          e.preventDefault();
+          try {
+            setWords((await call({ type: "REVEAL_MNEMONIC", password })).mnemonic.split(" "));
+            setPassword("");
+          } catch (err) {
+            setError(err);
+          }
+        }}
+      >
+        <p className="muted">
+          Enter your password to see the 12 words. Make sure nobody is watching your screen.
+        </p>
+        <label>
+          Password
+          <input
+            type="password"
+            autoComplete="current-password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
+        </label>
+        <ErrorNotice error={error} />
+        <button type="submit" className="primary wide" disabled={!password}>
+          Show
+        </button>
+      </form>
+    </Screen>
+  );
+}
+
+function ChangePassword({ onBack }: { onBack: () => void }) {
+  const [current, setCurrent] = useState("");
+  const [next, setNext] = useState<string | null>(null);
+  const [done, setDone] = useState(false);
+  const [error, setError] = useState<unknown>(null);
+  const onNext = useCallback((value: string | null) => setNext(value), []);
+  return (
+    <Screen title="Change password" back={onBack}>
+      {done ? (
+        <p className="notice ok">The password was changed.</p>
+      ) : (
+        <form
+          className="stack"
+          onSubmit={async (e) => {
+            e.preventDefault();
+            if (!next) return;
+            try {
+              await call({ type: "CHANGE_PASSWORD", oldPassword: current, newPassword: next });
+              setDone(true);
+            } catch (err) {
+              setError(err);
+            }
+          }}
+        >
+          <label>
+            Current password
+            <input
+              type="password"
+              autoComplete="current-password"
+              value={current}
+              onChange={(e) => setCurrent(e.target.value)}
+            />
+          </label>
+          <NewPassword label="New password" onChange={onNext} />
+          <ErrorNotice error={error} />
+          <button type="submit" className="primary wide" disabled={!current || !next}>
+            Change password
+          </button>
+        </form>
+      )}
+    </Screen>
+  );
+}
+
+function Servers({ onBack }: { onBack: () => void }) {
+  const [health, setHealth] = useState<Health | null>(null);
+  const [error, setError] = useState<unknown>(null);
+  useEffect(() => {
+    const load = () => call({ type: "SERVER_HEALTH" }).then(setHealth, setError);
+    void load();
+    const timer = setInterval(() => void load(), 3_000);
+    return () => clearInterval(timer);
+  }, []);
+  return (
+    <Screen title="Network servers" back={onBack}>
+      <p className="small muted">
+        Cashlet uses public servers and moves to another one when a server is down, on the wrong
+        chain, behind the others, or reports a node problem.
+      </p>
+      <ErrorNotice error={error} />
+      <ul className="list">
+        {health?.servers.map((s) => (
+          <li key={s.url}>
+            <span className="stack" style={{ gap: 2 }}>
+              <code>{s.url.replace("wss://", "")}</code>
+              {s.lastError && <span className="small muted">{s.lastError}</span>}
+            </span>
+            <span className="small">
+              {s.url === health.current ? (
+                <span className="tag">In use</span>
+              ) : s.state === "cooling" ? (
+                "Set aside"
+              ) : s.state === "ok" ? (
+                "OK"
+              ) : (
+                "Not tried"
+              )}
+              {s.tip !== null && <div className="muted">Block {s.tip}</div>}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </Screen>
+  );
+}
+
+function Contacts({ network, onBack }: { network: "mainnet" | "chipnet"; onBack: () => void }) {
+  const [contacts, setContacts] = useState<Contact[]>([]);
+  const [name, setName] = useState("");
+  const [address, setAddress] = useState("");
+  const [error, setError] = useState<unknown>(null);
+  const reload = useCallback(
+    () => void loadContacts().then((all) => setContacts(all.filter((c) => c.network === network))),
+    [network],
+  );
+  useEffect(reload, [reload]);
+  return (
+    <Screen title="Address book" back={onBack}>
+      <ul className="list">
+        {contacts.length === 0 && <li className="muted small">No contacts yet.</li>}
+        {contacts.map((c) => (
+          <li key={c.id}>
+            <span className="stack" style={{ gap: 2 }}>
+              <strong>{c.name}</strong>
+              <code className="small">{c.address}</code>
+            </span>
+            <span className="row">
+              <CopyButton text={c.address} />
+              <button
+                type="button"
+                className="icon danger"
+                onClick={() => void deleteContact(c.id).then(reload)}
+              >
+                Delete
+              </button>
+            </span>
+          </li>
+        ))}
+      </ul>
+      <form
+        className="card stack"
+        onSubmit={async (e) => {
+          e.preventDefault();
+          try {
+            await saveContact(name, address, network);
+            setName("");
+            setAddress("");
+            setError(null);
+            reload();
+          } catch (err) {
+            setError(err);
+          }
+        }}
+      >
+        <h3>Add a contact</h3>
+        <label>
+          Name
+          <input value={name} onChange={(e) => setName(e.target.value)} />
+        </label>
+        <label>
+          Address
+          <input spellCheck={false} value={address} onChange={(e) => setAddress(e.target.value)} />
+        </label>
+        <ErrorNotice error={error} />
+        <button type="submit" className="primary" disabled={!name || !address}>
+          Save
+        </button>
+      </form>
+    </Screen>
+  );
+}
+
+function Wallets({
+  status,
+  onBack,
+  onAddWallet,
+  onChanged,
+}: {
+  status: Status;
+  onBack: () => void;
+  onAddWallet: () => void;
+  onChanged: () => void;
+}) {
+  const [removing, setRemoving] = useState<string | null>(null);
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<unknown>(null);
+  return (
+    <Screen title="Wallets" back={onBack}>
+      <ul className="list">
+        {status.wallets.map((w) => (
+          <li key={w.id}>
+            <span className="stack" style={{ gap: 2 }}>
+              <strong>
+                {w.name} {w.id === status.activeId && <span className="tag">Open</span>}
+              </strong>
+              <span className="small muted">{w.network === "mainnet" ? "Mainnet" : "Chipnet"}</span>
+            </span>
+            <button type="button" className="icon danger" onClick={() => setRemoving(w.id)}>
+              Remove
+            </button>
+          </li>
+        ))}
+      </ul>
+      {removing && (
+        <form
+          className="card stack"
+          onSubmit={async (e) => {
+            e.preventDefault();
+            try {
+              await call({ type: "REMOVE_WALLET", walletId: removing, password });
+              setRemoving(null);
+              setPassword("");
+              onChanged();
+            } catch (err) {
+              setError(err);
+            }
+          }}
+        >
+          <p className="notice warning">
+            Removing a wallet deletes it from this device. Without its recovery phrase the money in
+            it is lost.
+          </p>
+          <label>
+            That wallet's password
+            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
+          </label>
+          <ErrorNotice error={error} />
+          <div className="row">
+            <button type="button" className="grow" onClick={() => setRemoving(null)}>
+              Cancel
+            </button>
+            <button type="submit" className="danger grow" disabled={!password}>
+              Remove
+            </button>
+          </div>
+        </form>
+      )}
+      <button type="button" className="wide" onClick={onAddWallet}>
+        Add another wallet
+      </button>
+    </Screen>
+  );
+}
