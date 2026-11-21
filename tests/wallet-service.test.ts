@@ -225,3 +225,16 @@ describe("WalletService", () => {
     });
   });
 });
+
+describe("feeRateFrom", () => {
+  it("turns BCH per kB into sat/byte, between 1 and 10", async () => {
+    const { feeRateFrom } = await import("../src/background/wallet-service");
+    expect(feeRateFrom(0.00001)).toBe(1);
+    expect(feeRateFrom(0.00002)).toBe(2);
+    expect(feeRateFrom(0.000011)).toBe(2);
+    expect(feeRateFrom(1)).toBe(10);
+    expect(feeRateFrom(0)).toBe(1);
+    expect(feeRateFrom("x")).toBe(1);
+    expect(feeRateFrom(Number.NaN)).toBe(1);
+  });
+});

@@ -32,6 +32,16 @@ export interface ServiceDeps {
 }
 
 const PLAN_TTL_MS = 2 * 60_000;
+const MIN_FEE_RATE = 1;
+const MAX_FEE_RATE = 10;
+
+/** Electrum's relay fee is BCH per kB; the wallet pays at least 1 and at most 10 sat/byte. */
+export function feeRateFrom(relayFee: unknown): number {
+  const satsPerByte = Math.ceil(
+    (typeof relayFee === "number" && Number.isFinite(relayFee) ? relayFee : 0) * 100_000,
+  );
+  return Math.min(MAX_FEE_RATE, Math.max(MIN_FEE_RATE, satsPerByte));
+}
 const DEFAULT_AUTO_LOCK_MINUTES = 15;
 
 interface Runtime {
@@ -41,6 +51,8 @@ interface Runtime {
   scanner: Scanner;
   scan: "idle" | "scanning" | "ready" | "error";
   scanError: string | null;
+  /** Satoshis per byte, from the server's relay fee once it is known. */
+  feeRate: number;
 }
 
 type Result<T extends Request["type"]> = ResponseFor[T] | ErrorResponse;
@@ -108,9 +120,16 @@ export class WalletService {
       }
       case "STATUS": {
         const status = await session.status();
+        const wallets = await Promise.all(
+          status.wallets.map(async (wallet) => ({
+            ...wallet,
+            backedUp: (await this.deps.settings.get<boolean>(`backedUp:${wallet.id}`)) ?? false,
+          })),
+        );
         return {
           ok: true,
           ...status,
+          wallets,
           network: status.unlocked ? session.current().network : null,
           scan: this.runtime?.scan ?? "idle",
           scanError: this.runtime?.scanError ?? null,
@@ -129,6 +148,8 @@ export class WalletService {
           request.network,
           request.name,
         );
+        // An imported phrase was entered by the user, so it is already written down.
+        await this.deps.settings.set(`backedUp:${imported.id}`, true);
         await this.start();
         return { ok: true, ...imported };
       }
@@ -177,10 +198,17 @@ export class WalletService {
         if (this.runtime?.walletId === request.walletId) this.lock();
         await session.remove(request.walletId, request.password);
         await (await this.deps.openStore(request.walletId)).clear();
+        await this.deps.settings.remove(`backedUp:${request.walletId}`);
         return { ok: true };
       }
       case "RENAME_WALLET":
         await session.rename(request.walletId, request.name);
+        return { ok: true };
+      case "CONFIRM_BACKUP":
+        if (!(await session.status()).wallets.some((wallet) => wallet.id === request.walletId)) {
+          throw new Error("no such wallet");
+        }
+        await this.deps.settings.set(`backedUp:${request.walletId}`, true);
         return { ok: true };
       case "SET_AUTO_LOCK":
         await this.deps.settings.set("autoLockMinutes", request.minutes);
@@ -219,6 +247,7 @@ export class WalletService {
       scanner,
       scan: "scanning",
       scanError: null,
+      feeRate: MIN_FEE_RATE,
     };
     this.runtime = runtime;
     scanner.scan().then(
@@ -230,6 +259,13 @@ export class WalletService {
         runtime.scanError = error instanceof Error ? error.message : String(error);
       },
     );
+    // The relay fee is read once, in the background, so a send never waits on the network for it.
+    connection.request<number>("blockchain.relayfee").then(
+      (relayFee) => {
+        runtime.feeRate = feeRateFrom(relayFee);
+      },
+      () => undefined,
+    );
   }
 
   private async prepareSend(
@@ -237,11 +273,7 @@ export class WalletService {
   ): Promise<ResponseFor["PREPARE_SEND"]> {
     const { wallet, network, id } = this.deps.session.current();
     const runtime = this.active();
-    const relayFee = await runtime.connection
-      .request<number>("blockchain.relayfee")
-      .catch(() => 0.00001);
-    // relayfee is BCH per kB; at least 1 sat/byte, at most 10.
-    const feeRate = Math.min(10, Math.max(1, Math.ceil((Number(relayFee) || 0) * 100_000)));
+    const feeRate = runtime.feeRate;
     const locate = (scripthash: string) => {
       const address = runtime.scanner.addressFor(scripthash);
       if (!address) throw new Error("an output belongs to an address this wallet does not know");
