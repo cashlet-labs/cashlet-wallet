@@ -12,3 +12,5 @@ coverage/
 
 # Local notes and plans, never committed.
 *.local.md
+playwright-report/
+test-results/
