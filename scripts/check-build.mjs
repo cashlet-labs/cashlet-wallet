@@ -2,7 +2,8 @@
 //
 // 1. The manifest is there and names a service worker.
 // 2. No source maps ship: they would publish the wallet's source.
-// 3. Nothing the service worker loads uses top-level await. Chrome refuses to
+// 3. Nothing is web-accessible.
+// 4. Nothing the service worker loads uses top-level await. Chrome refuses to
 //    start an MV3 service worker whose module graph contains it.
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
@@ -25,6 +26,10 @@ if (!existsSync(join(dist, "manifest.json"))) {
 const manifest = JSON.parse(readFileSync(join(dist, "manifest.json"), "utf8"));
 const worker = manifest.background?.service_worker;
 if (typeof worker !== "string") problems.push("the manifest names no service worker");
+
+// Nothing in the package may be fetched by web pages (it would reveal the extension to them).
+if (manifest.web_accessible_resources !== undefined)
+  problems.push("the manifest exposes web-accessible resources");
 
 for (const file of walk(dist)) {
   if (file.endsWith(".map")) problems.push(`source map in the package: ${relative(dist, file)}`);

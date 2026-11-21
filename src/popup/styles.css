@@ -409,3 +409,26 @@ input[aria-invalid="true"] {
 .review dd {
   margin: 0 0 8px;
 }
+
+.site-origin {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  word-break: break-all;
+}
+.event-content {
+  margin: 0;
+  max-height: 12rem;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+}
+.event-tags {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: 8rem;
+  overflow: auto;
+}

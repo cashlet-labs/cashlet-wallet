@@ -3,6 +3,7 @@ import { resolvePayee, type PayeeResult } from "@cashlet-labs/bnd/did";
 import { discoverBinding, publishBinding } from "@cashlet-labs/bnd/nostr";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import type { ErrorResponse, PlannedOutputMessage, Request, ResponseFor } from "../shared/messages";
+import type { PageRequest } from "../shared/page-messages";
 import { allRelayUrls, Identity, PUBLIC_RELAYS, type RelayApi } from "../wallet/identity";
 import { p2pkhLockingBytecode } from "../wallet/indexer";
 import { Scanner, type IndexerSource } from "../wallet/scanner";
@@ -15,6 +16,7 @@ import {
 } from "../wallet/session";
 import type { WalletStore } from "../wallet/store";
 import { WrongPasswordError } from "../wallet/vault";
+import { SiteGate } from "./sites";
 
 /** A network connection the service can scan and broadcast through (ElectrumPool in the extension). */
 export interface Connection extends IndexerSource {
@@ -36,6 +38,8 @@ export interface ServiceDeps {
   relays?: RelayApi;
   /** Resolves an npub or did:bnd to a verified address. Defaults to real relays. */
   resolvePayee?: (target: string, relays: readonly string[]) => Promise<PayeeResult>;
+  /** Called whenever the number of site requests waiting for the user changes. */
+  onApprovals?: (waiting: number) => void;
 }
 
 const realRelays: RelayApi = {
@@ -85,7 +89,27 @@ export class WalletService {
     { plan: SendPlan; walletId: string; expiresAt: number }
   >();
 
-  constructor(private readonly deps: ServiceDeps) {}
+  private readonly gate: SiteGate;
+
+  constructor(private readonly deps: ServiceDeps) {
+    this.gate = new SiteGate({
+      settings: deps.settings,
+      unlocked: () => {
+        const runtime = this.active();
+        return { walletId: runtime.walletId, identity: runtime.identity };
+      },
+      now: () => this.now(),
+      ...(deps.onApprovals ? { onChange: deps.onApprovals } : {}),
+    });
+  }
+
+  /**
+   * A web page's request, already validated, with the origin the browser
+   * reported. Pages never restart the auto-lock timer.
+   */
+  page(origin: string, request: PageRequest, signal?: AbortSignal): Promise<unknown> {
+    return this.gate.request(origin, request, signal);
+  }
 
   private now(): number {
     return (this.deps.now ?? Date.now)();
@@ -150,6 +174,7 @@ export class WalletService {
           scan: this.runtime?.scan ?? "idle",
           scanError: this.runtime?.scanError ?? null,
           autoLockMinutes: await this.autoLockMinutes(),
+          approvals: this.gate.count,
         };
       }
       case "CREATE_WALLET": {
@@ -215,6 +240,7 @@ export class WalletService {
         await session.remove(request.walletId, request.password);
         await (await this.deps.openStore(request.walletId)).clear();
         await this.deps.settings.remove(`backedUp:${request.walletId}`);
+        await this.gate.forget(request.walletId);
         return { ok: true };
       }
       case "RENAME_WALLET":
@@ -266,6 +292,32 @@ export class WalletService {
           npub: npubEncode(payee.binding.nostrPublicKey),
         };
       }
+      case "APPROVALS_LIST": {
+        const approvals = this.gate.approvals();
+        // The key the site would get, shown on the approval screen; unknown while locked.
+        let npub: string | null;
+        try {
+          npub = npubEncode(await this.active().identity.nostrPublicKey());
+        } catch {
+          npub = null;
+        }
+        return { ok: true, approvals, npub };
+      }
+      case "APPROVAL_DECIDE":
+        await this.gate.decide(request.id, request.approve, request.remember);
+        return { ok: true };
+      case "SITES_LIST":
+        return {
+          ok: true,
+          sites: (await this.gate.sites()).map(({ origin, kinds, connectedAt }) => ({
+            origin,
+            kinds,
+            connectedAt,
+          })),
+        };
+      case "SITE_REMOVE":
+        await this.gate.removeSite(request.origin);
+        return { ok: true };
       case "SERVER_HEALTH": {
         const { connection } = this.active();
         return {
@@ -321,6 +373,8 @@ export class WalletService {
         runtime.scanError = error instanceof Error ? error.message : String(error);
       },
     );
+    // Site requests that arrived while locked and are already allowed are answered now.
+    void this.gate.refresh();
     // The relay fee is read once, in the background, so a send never waits on the network for it.
     connection.request<number>("blockchain.relayfee").then(
       (relayFee) => {
