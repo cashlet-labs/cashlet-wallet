@@ -3,13 +3,23 @@ import { call, type Status } from "./api";
 import { ErrorNotice, Screen } from "./components/common";
 import { poll } from "./errors";
 import { Home } from "./screens/Home";
+import { Identity } from "./screens/Identity";
 import { BackupCheck, CreateWallet, ImportWallet, Welcome } from "./screens/Onboarding";
 import { Receive } from "./screens/Receive";
 import { Send } from "./screens/Send";
 import { Settings } from "./screens/Settings";
 import { Unlock } from "./screens/Unlock";
 
-type View = "home" | "send" | "receive" | "settings" | "welcome" | "create" | "import" | "backup";
+type View =
+  | "home"
+  | "send"
+  | "receive"
+  | "identity"
+  | "settings"
+  | "welcome"
+  | "create"
+  | "import"
+  | "backup";
 
 export function App() {
   const [status, setStatus] = useState<Status | null>(null);
@@ -74,6 +84,8 @@ export function App() {
     body = <Send network={status.network ?? "chipnet"} onBack={go("home")} />;
   } else if (view === "receive") {
     body = <Receive onBack={go("home")} />;
+  } else if (view === "identity") {
+    body = <Identity onBack={go("home")} />;
   } else if (view === "settings") {
     body = (
       <Settings
@@ -91,6 +103,7 @@ export function App() {
         status={status}
         onSend={() => setView("send")}
         onReceive={() => setView("receive")}
+        onIdentity={() => setView("identity")}
         onBackup={() => setView("backup")}
       />
     );

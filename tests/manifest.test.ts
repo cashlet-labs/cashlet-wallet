@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { allServerUrls } from "../src/electrum/servers";
+import { allRelayUrls } from "../src/wallet/identity";
 
 const manifest = JSON.parse(readFileSync(new URL("../manifest.json", import.meta.url), "utf8")) as {
   permissions: string[];
@@ -21,9 +22,9 @@ function directive(name: string): string[] {
 }
 
 describe("manifest.json", () => {
-  it("lets the wallet reach every configured Electrum server, and nothing else", () => {
+  it("lets the wallet reach every configured Electrum server and Nostr relay, and nothing else", () => {
     const allowed = directive("connect-src").filter((source) => source !== "'self'");
-    expect(allowed.sort()).toEqual(allServerUrls().sort());
+    expect(allowed.sort()).toEqual([...allServerUrls(), ...allRelayUrls()].sort());
   });
 
   it("keeps a strict policy for extension pages", () => {

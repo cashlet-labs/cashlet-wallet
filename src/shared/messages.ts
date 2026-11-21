@@ -40,7 +40,13 @@ export type Request =
   | { type: "RENAME_WALLET"; walletId: string; name: string }
   | { type: "SET_AUTO_LOCK"; minutes: number }
   | { type: "SERVER_HEALTH" }
-  | { type: "CONFIRM_BACKUP"; walletId: string };
+  | { type: "CONFIRM_BACKUP"; walletId: string }
+  | { type: "IDENTITY_STATUS" }
+  | { type: "IDENTITY_BIND" }
+  | { type: "IDENTITY_ROTATE"; key: "bch" | "nostr" }
+  | { type: "IDENTITY_REVOKE"; password: string }
+  | { type: "IDENTITY_PUBLIC_RELAYS"; enabled: boolean }
+  | { type: "RESOLVE_PAYEE"; target: string };
 
 export type RequestType = Request["type"];
 
@@ -100,6 +106,21 @@ export interface ResponseFor {
   RENAME_WALLET: { ok: true };
   SET_AUTO_LOCK: { ok: true };
   CONFIRM_BACKUP: { ok: true };
+  IDENTITY_STATUS: {
+    ok: true;
+    npub: string;
+    nostrPublicKey: string;
+    address: string;
+    state: "none" | "current" | "revoked" | "disputed" | "unknown";
+    did: string | null;
+    relays: { complete: number; asked: number };
+    publicRelays: boolean;
+  };
+  IDENTITY_BIND: { ok: true; did: string; accepted: string[] };
+  IDENTITY_ROTATE: { ok: true; did: string; accepted: string[] };
+  IDENTITY_REVOKE: { ok: true; accepted: string[] };
+  IDENTITY_PUBLIC_RELAYS: { ok: true };
+  RESOLVE_PAYEE: { ok: true; address: string; tokenAddress: string; did: string; npub: string };
   SERVER_HEALTH: {
     ok: true;
     current: string | null;
@@ -175,6 +196,15 @@ function recipient(value: unknown): RecipientMessage | null {
   return result;
 }
 
+/** An npub, a 64-hex Nostr public key, or a did:bnd. Checked fully when it is resolved. */
+export function isPayeeTarget(value: string): boolean {
+  return (
+    /^npub1[02-9ac-hj-np-z]{58}$/.test(value) ||
+    HEX32.test(value) ||
+    /^did:bnd:[0-9a-z:]{1,190}$/.test(value)
+  );
+}
+
 /** Validate an untrusted message. Returns the request, or a reason it was refused. */
 export function parseRequest(value: unknown): Request | { error: string } {
   if (!isRecord(value) || typeof value.type !== "string") return { error: "malformed message" };
@@ -187,6 +217,8 @@ export function parseRequest(value: unknown): Request | { error: string } {
     case "GET_BALANCE":
     case "GET_HISTORY":
     case "SERVER_HEALTH":
+    case "IDENTITY_STATUS":
+    case "IDENTITY_BIND":
       return hasKeys(v, ["type"]) ? ({ type: v.type } as Request) : bad;
     case "VERIFY_BINDING":
       if (!hasKeys(v, ["type", "event"])) return bad;
@@ -272,6 +304,22 @@ export function parseRequest(value: unknown): Request | { error: string } {
         (v.minutes as number) >= 1 &&
         (v.minutes as number) <= 1440
         ? { type: "SET_AUTO_LOCK", minutes: v.minutes as number }
+        : bad;
+    case "IDENTITY_ROTATE":
+      return hasKeys(v, ["type", "key"]) && (v.key === "bch" || v.key === "nostr")
+        ? { type: "IDENTITY_ROTATE", key: v.key }
+        : bad;
+    case "IDENTITY_REVOKE":
+      return hasKeys(v, ["type", "password"]) && text(v.password, 1024)
+        ? { type: "IDENTITY_REVOKE", password: v.password }
+        : bad;
+    case "IDENTITY_PUBLIC_RELAYS":
+      return hasKeys(v, ["type", "enabled"]) && typeof v.enabled === "boolean"
+        ? { type: "IDENTITY_PUBLIC_RELAYS", enabled: v.enabled }
+        : bad;
+    case "RESOLVE_PAYEE":
+      return hasKeys(v, ["type", "target"]) && text(v.target, 200) && isPayeeTarget(v.target)
+        ? { type: "RESOLVE_PAYEE", target: v.target }
         : bad;
     default:
       return { error: `unknown message type: ${v.type}` };

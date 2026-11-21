@@ -22,11 +22,13 @@ export function Home({
   status,
   onSend,
   onReceive,
+  onIdentity,
   onBackup,
 }: {
   status: Status;
   onSend: () => void;
   onReceive: () => void;
+  onIdentity: () => void;
   onBackup: () => void;
 }) {
   const [balance, setBalance] = useState<Balance | null>(null);
@@ -94,6 +96,9 @@ export function Home({
         </button>
         <button type="button" className="grow" onClick={onReceive}>
           Receive
+        </button>
+        <button type="button" className="grow" onClick={onIdentity}>
+          Identity
         </button>
       </div>
       <ErrorNotice error={error} />

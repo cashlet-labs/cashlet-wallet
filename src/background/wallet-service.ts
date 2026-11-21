@@ -1,6 +1,9 @@
-import { BINDING_EVENT_KIND, verifyBinding } from "@cashlet-labs/bnd";
+import { BINDING_EVENT_KIND, npubEncode, verifyBinding } from "@cashlet-labs/bnd";
+import { resolvePayee, type PayeeResult } from "@cashlet-labs/bnd/did";
+import { discoverBinding, publishBinding } from "@cashlet-labs/bnd/nostr";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import type { ErrorResponse, PlannedOutputMessage, Request, ResponseFor } from "../shared/messages";
+import { allRelayUrls, Identity, PUBLIC_RELAYS, type RelayApi } from "../wallet/identity";
 import { p2pkhLockingBytecode } from "../wallet/indexer";
 import { Scanner, type IndexerSource } from "../wallet/scanner";
 import { buildSend, type SendPlan } from "../wallet/send";
@@ -29,7 +32,19 @@ export interface ServiceDeps {
   now?: () => number;
   /** Called whenever the auto-lock timer should restart. */
   onActivity?: (minutes: number) => void;
+  /** Nostr relays, for the wallet's identity. Defaults to real relays over WebSocket. */
+  relays?: RelayApi;
+  /** Resolves an npub or did:bnd to a verified address. Defaults to real relays. */
+  resolvePayee?: (target: string, relays: readonly string[]) => Promise<PayeeResult>;
 }
+
+const realRelays: RelayApi = {
+  discover: (nostrPublicKey, relays) => discoverBinding(nostrPublicKey, { relays }),
+  publish: (event, relays) => publishBinding(event, { relays }),
+};
+
+const realResolvePayee = (target: string, relays: readonly string[]) =>
+  resolvePayee(target, { relays });
 
 const PLAN_TTL_MS = 2 * 60_000;
 const MIN_FEE_RATE = 1;
@@ -49,6 +64,7 @@ interface Runtime {
   connection: Connection;
   store: WalletStore;
   scanner: Scanner;
+  identity: Identity;
   scan: "idle" | "scanning" | "ready" | "error";
   scanError: string | null;
   /** Satoshis per byte, from the server's relay fee once it is known. */
@@ -213,6 +229,43 @@ export class WalletService {
       case "SET_AUTO_LOCK":
         await this.deps.settings.set("autoLockMinutes", request.minutes);
         return { ok: true };
+      case "IDENTITY_STATUS":
+        return { ok: true, ...(await this.active().identity.status()) };
+      case "IDENTITY_BIND":
+        return { ok: true, ...(await this.active().identity.bind()) };
+      case "IDENTITY_ROTATE": {
+        const { identity, scanner } = this.active();
+        if (request.key === "nostr") return { ok: true, ...(await identity.rotate("nostr")) };
+        // Move to an address nobody has been given yet, never back to an earlier one.
+        const current = (await identity.keys()).bchIndex;
+        const next = Math.max((await scanner.nextAddress(0)).index, current + 1);
+        return { ok: true, ...(await identity.rotate("bch", next)) };
+      }
+      case "IDENTITY_REVOKE": {
+        const { identity } = this.active();
+        await session.reveal(request.password);
+        return { ok: true, ...(await identity.revoke()) };
+      }
+      case "IDENTITY_PUBLIC_RELAYS":
+        await this.active().identity.setPublicRelays(request.enabled);
+        return { ok: true };
+      case "RESOLVE_PAYEE": {
+        const { network } = session.current();
+        this.active();
+        const resolve = this.deps.resolvePayee ?? realResolvePayee;
+        const payee = await resolve(request.target, allRelayUrls());
+        if (!payee.ok) throw new Error(payee.reason);
+        if (payee.binding.bch.network !== network) {
+          throw new Error(`this identity is on ${payee.binding.bch.network}, not ${network}`);
+        }
+        return {
+          ok: true,
+          address: payee.address,
+          tokenAddress: payee.tokenAddress,
+          did: payee.did,
+          npub: npubEncode(payee.binding.nostrPublicKey),
+        };
+      }
       case "SERVER_HEALTH": {
         const { connection } = this.active();
         return {
@@ -240,11 +293,20 @@ export class WalletService {
     const connection = this.deps.connect(network);
     const store = await this.deps.openStore(id);
     const scanner = new Scanner(wallet, network, connection, store);
+    const identity = new Identity(
+      wallet,
+      network,
+      id,
+      this.deps.relays ?? realRelays,
+      this.deps.settings,
+      PUBLIC_RELAYS,
+    );
     const runtime: Runtime = {
       walletId: id,
       connection,
       store,
       scanner,
+      identity,
       scan: "scanning",
       scanError: null,
       feeRate: MIN_FEE_RATE,
