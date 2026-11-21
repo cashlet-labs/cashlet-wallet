@@ -77,6 +77,11 @@ export class Scanner {
     this.stopListening = null;
   }
 
+  /** The address record for a scripthash this scanner watches. */
+  addressFor(scripthash: string): AddressRecord | undefined {
+    return this.byScripthash.get(scripthash);
+  }
+
   /** The first receive address after the last used one, for showing to the user. */
   async nextAddress(chain: Chain, tokenAware = false): Promise<{ index: number; address: string }> {
     const used = [...this.byScripthash.values()].filter(
