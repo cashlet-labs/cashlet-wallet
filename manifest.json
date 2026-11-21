@@ -6,7 +6,7 @@
   "minimum_chrome_version": "116",
   "permissions": ["storage", "alarms", "sidePanel"],
   "content_security_policy": {
-    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'none'; base-uri 'none'; img-src 'self' data:; connect-src 'self'"
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'none'; base-uri 'none'; img-src 'self' data:; connect-src 'self' wss://bch.imaginary.cash:50004 wss://electrum.imaginary.cash:50004 wss://electroncash.dk:50004 wss://bch.loping.net:62104 wss://electron.jochen-hoenicke.de:51004 wss://chipnet.imaginary.cash:50004 wss://chipnet.bch.ninja:50004 wss://cbch.loping.net:62104"
   },
   "background": {
     "service_worker": "src/background/service-worker.ts",

@@ -63,3 +63,44 @@ test("a web page cannot reach the service worker", async ({ context }) => {
   });
   expect(channel).toBe("undefined");
 });
+
+test("creates, locks and unlocks a wallet, and stores no recovery phrase in the clear", async ({
+  context,
+  extensionId,
+}) => {
+  const page = await context.newPage();
+  await page.goto(`chrome-extension://${extensionId}/src/popup/index.html`);
+  const send = (message: object) => page.evaluate((m) => chrome.runtime.sendMessage(m), message);
+
+  const created = (await send({
+    type: "CREATE_WALLET",
+    password: "e2e password",
+    network: "chipnet",
+  })) as {
+    ok: boolean;
+    mnemonic: string;
+  };
+  expect(created.ok).toBe(true);
+  expect(created.mnemonic.split(" ")).toHaveLength(12);
+
+  const stored = JSON.stringify(await page.evaluate(() => chrome.storage.local.get(null)));
+  expect(stored).toContain('"kdf":"PBKDF2-SHA256"');
+  expect(stored).not.toContain(created.mnemonic.split(" ").slice(0, 3).join(" "));
+  expect(stored).not.toContain("e2e password");
+
+  const address = (await send({ type: "GET_RECEIVE_ADDRESS", tokenAware: false })) as {
+    address: string;
+  };
+  expect(address.address).toMatch(/^bchtest:q/);
+
+  expect(await send({ type: "LOCK" })).toEqual({ ok: true });
+  expect(await send({ type: "GET_BALANCE" })).toMatchObject({ ok: false, code: "LOCKED" });
+  expect(await send({ type: "UNLOCK", password: "wrong password" })).toMatchObject({
+    code: "WRONG_PASSWORD",
+  });
+  expect(await send({ type: "UNLOCK", password: "e2e password" })).toEqual({ ok: true });
+  expect(await send({ type: "REVEAL_MNEMONIC", password: "e2e password" })).toEqual({
+    ok: true,
+    mnemonic: created.mnemonic,
+  });
+});

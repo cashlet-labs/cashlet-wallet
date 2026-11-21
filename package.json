@@ -26,6 +26,12 @@
   "dependencies": {
     "@bitauth/libauth": "3.0.0",
     "@cashlet-labs/bnd": "0.4.0",
+    "@noble/curves": "2.4.0",
+    "@noble/hashes": "2.4.0",
+    "@scure/base": "2.4.0",
+    "@scure/bip32": "2.4.0",
+    "@scure/bip39": "2.4.0",
+    "idb": "8.0.4",
     "react": "19.3.1",
     "react-dom": "19.3.1"
   },
@@ -41,6 +47,7 @@
     "eslint": "10.15.0",
     "eslint-plugin-react-hooks": "7.1.1",
     "eslint-plugin-react-refresh": "0.5.8",
+    "fake-indexeddb": "6.2.8",
     "prettier": "3.10.1",
     "typescript": "6.0.3",
     "typescript-eslint": "8.73.0",

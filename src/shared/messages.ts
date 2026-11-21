@@ -1,64 +1,274 @@
 /**
  * Messages between extension pages and the service worker.
  *
- * Every message is a plain object with a `type`. The service worker checks each
- * one with `parseRequest` before acting on it, and only accepts requests from
- * the extension's own pages (see `isExtensionSender`).
+ * Every message is a plain JSON object with a `type`. The service worker checks
+ * each one with `parseRequest` before acting on it, and only accepts requests
+ * from the extension's own pages (see `isExtensionSender`). Chrome passes
+ * messages as JSON, so token amounts travel as decimal strings.
  */
+import type { BchNetwork } from "@cashlet-labs/bnd";
 
-/** Ask whether the service worker is running, and which protocol it speaks. */
-export interface PingRequest {
-  type: "PING";
+export interface RecipientMessage {
+  address: string;
+  value: number;
+  token?: { category: string; amount: string };
+  nft?: { txid: string; vout: number };
 }
 
-/** Verify one BND binding event offline (BND-1 section 7). */
-export interface VerifyBindingRequest {
-  type: "VERIFY_BINDING";
-  event: unknown;
+export type Request =
+  | { type: "PING" }
+  | { type: "VERIFY_BINDING"; event: unknown }
+  | { type: "STATUS" }
+  | { type: "CREATE_WALLET"; password: string; network: BchNetwork; name?: string }
+  | {
+      type: "IMPORT_WALLET";
+      mnemonic: string;
+      password: string;
+      network: BchNetwork;
+      name?: string;
+    }
+  | { type: "UNLOCK"; password: string; walletId?: string }
+  | { type: "LOCK" }
+  | { type: "GET_RECEIVE_ADDRESS"; tokenAware: boolean }
+  | { type: "GET_BALANCE" }
+  | { type: "GET_HISTORY" }
+  | { type: "PREPARE_SEND"; recipients: RecipientMessage[] }
+  | { type: "CONFIRM_SEND"; planId: string }
+  | { type: "REVEAL_MNEMONIC"; password: string }
+  | { type: "CHANGE_PASSWORD"; oldPassword: string; newPassword: string }
+  | { type: "REMOVE_WALLET"; walletId: string; password: string }
+  | { type: "RENAME_WALLET"; walletId: string; name: string }
+  | { type: "SET_AUTO_LOCK"; minutes: number }
+  | { type: "SERVER_HEALTH" };
+
+export type RequestType = Request["type"];
+
+export interface TokenBalance {
+  category: string;
+  amount: string;
+  nfts: { capability: string; commitment: string }[];
 }
 
-export type Request = PingRequest | VerifyBindingRequest;
-
-export interface PingResponse {
-  ok: true;
-  bindingKind: number;
+export interface PlannedOutputMessage {
+  address: string;
+  value: number;
+  token: {
+    category: string;
+    amount: string;
+    nft: { capability: string; commitment: string } | null;
+  } | null;
+  change: boolean;
 }
-
-export type VerifyBindingResponse =
-  | { ok: true; nostrPublicKey: string; address: string; proofType: string | null }
-  | { ok: false; reason: string };
 
 export interface ResponseFor {
-  PING: PingResponse;
-  VERIFY_BINDING: VerifyBindingResponse;
+  PING: { ok: true; bindingKind: number };
+  VERIFY_BINDING:
+    | { ok: true; nostrPublicKey: string; address: string; proofType: string | null }
+    | { ok: false; reason: string };
+  STATUS: {
+    ok: true;
+    wallets: { id: string; name: string; network: BchNetwork }[];
+    activeId: string | null;
+    unlocked: boolean;
+    retryAfter: number;
+    network: BchNetwork | null;
+    scan: "idle" | "scanning" | "ready" | "error";
+    scanError: string | null;
+    autoLockMinutes: number;
+  };
+  CREATE_WALLET: { ok: true; id: string; mnemonic: string };
+  IMPORT_WALLET: { ok: true; id: string };
+  UNLOCK: { ok: true };
+  LOCK: { ok: true };
+  GET_RECEIVE_ADDRESS: { ok: true; address: string; index: number };
+  GET_BALANCE: { ok: true; confirmed: number; unconfirmed: number; tokens: TokenBalance[] };
+  GET_HISTORY: { ok: true; entries: { txid: string; height: number; time: number | null }[] };
+  PREPARE_SEND: {
+    ok: true;
+    planId: string;
+    fee: number;
+    size: number;
+    outgoing: number;
+    outputs: PlannedOutputMessage[];
+    expiresAt: number;
+  };
+  CONFIRM_SEND: { ok: true; txid: string };
+  REVEAL_MNEMONIC: { ok: true; mnemonic: string };
+  CHANGE_PASSWORD: { ok: true };
+  REMOVE_WALLET: { ok: true };
+  RENAME_WALLET: { ok: true };
+  SET_AUTO_LOCK: { ok: true };
+  SERVER_HEALTH: {
+    ok: true;
+    current: string | null;
+    servers: { url: string; state: string; tip: number | null; lastError: string | null }[];
+  };
 }
 
-export type ErrorResponse = { ok: false; error: string };
+export type ErrorResponse = { ok: false; error: string; code?: string };
 
 const MAX_EVENT_BYTES = 64 * 1024;
+const HEX32 = /^[0-9a-f]{64}$/;
 
-function isRecord(value: unknown): value is Record<string, unknown> {
+type Fields = Record<string, unknown>;
+
+function isRecord(value: unknown): value is Fields {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** Exactly these keys: `required` must be present, `optional` may be. */
+function hasKeys(value: Fields, required: string[], optional: string[] = []): boolean {
+  const keys = Object.keys(value);
+  return (
+    required.every((k) => keys.includes(k)) &&
+    keys.every((k) => required.includes(k) || optional.includes(k))
+  );
+}
+
+function text(value: unknown, max: number): value is string {
+  return typeof value === "string" && value.length > 0 && value.length <= max;
+}
+
+function network(value: unknown): value is BchNetwork {
+  return value === "mainnet" || value === "chipnet";
+}
+
+function recipient(value: unknown): RecipientMessage | null {
+  if (!isRecord(value) || !hasKeys(value, ["address", "value"], ["token", "nft"])) return null;
+  if (
+    !text(value.address, 120) ||
+    !Number.isSafeInteger(value.value) ||
+    (value.value as number) < 0
+  )
+    return null;
+  const result: RecipientMessage = { address: value.address, value: value.value as number };
+  if (value.token !== undefined) {
+    const t = value.token;
+    if (
+      !isRecord(t) ||
+      !hasKeys(t, ["category", "amount"]) ||
+      typeof t.category !== "string" ||
+      !HEX32.test(t.category) ||
+      typeof t.amount !== "string" ||
+      !/^[1-9][0-9]{0,18}$/.test(t.amount)
+    ) {
+      return null;
+    }
+    result.token = { category: t.category, amount: t.amount };
+  }
+  if (value.nft !== undefined) {
+    const n = value.nft;
+    if (
+      !isRecord(n) ||
+      !hasKeys(n, ["txid", "vout"]) ||
+      typeof n.txid !== "string" ||
+      !HEX32.test(n.txid) ||
+      !Number.isInteger(n.vout) ||
+      (n.vout as number) < 0
+    ) {
+      return null;
+    }
+    result.nft = { txid: n.txid, vout: n.vout as number };
+  }
+  return result;
 }
 
 /** Validate an untrusted message. Returns the request, or a reason it was refused. */
 export function parseRequest(value: unknown): Request | { error: string } {
   if (!isRecord(value) || typeof value.type !== "string") return { error: "malformed message" };
-  switch (value.type) {
+  const v = value;
+  const bad = { error: `malformed ${v.type}` };
+  switch (v.type) {
     case "PING":
-      return Object.keys(value).length === 1 ? { type: "PING" } : { error: "malformed PING" };
-    case "VERIFY_BINDING": {
-      if (Object.keys(value).sort().join(",") !== "event,type") {
-        return { error: "malformed VERIFY_BINDING" };
-      }
+    case "STATUS":
+    case "LOCK":
+    case "GET_BALANCE":
+    case "GET_HISTORY":
+    case "SERVER_HEALTH":
+      return hasKeys(v, ["type"]) ? ({ type: v.type } as Request) : bad;
+    case "VERIFY_BINDING":
+      if (!hasKeys(v, ["type", "event"])) return bad;
       // A binding event is at most 64 KB on relays (BND-1 section 9.3).
-      if (JSON.stringify(value.event ?? null).length > MAX_EVENT_BYTES) {
+      if (JSON.stringify(v.event ?? null).length > MAX_EVENT_BYTES)
         return { error: "event too large" };
-      }
-      return { type: "VERIFY_BINDING", event: value.event };
+      return { type: "VERIFY_BINDING", event: v.event };
+    case "CREATE_WALLET":
+      if (!hasKeys(v, ["type", "password", "network"], ["name"])) return bad;
+      if (
+        !text(v.password, 1024) ||
+        !network(v.network) ||
+        (v.name !== undefined && !text(v.name, 40))
+      )
+        return bad;
+      return {
+        type: "CREATE_WALLET",
+        password: v.password,
+        network: v.network,
+        ...(v.name !== undefined ? { name: v.name as string } : {}),
+      };
+    case "IMPORT_WALLET":
+      if (!hasKeys(v, ["type", "mnemonic", "password", "network"], ["name"])) return bad;
+      if (!text(v.mnemonic, 1024) || !text(v.password, 1024) || !network(v.network)) return bad;
+      if (v.name !== undefined && !text(v.name, 40)) return bad;
+      return {
+        type: "IMPORT_WALLET",
+        mnemonic: v.mnemonic,
+        password: v.password,
+        network: v.network,
+        ...(v.name !== undefined ? { name: v.name as string } : {}),
+      };
+    case "UNLOCK":
+      if (!hasKeys(v, ["type", "password"], ["walletId"]) || !text(v.password, 1024)) return bad;
+      if (v.walletId !== undefined && !text(v.walletId, 64)) return bad;
+      return {
+        type: "UNLOCK",
+        password: v.password,
+        ...(v.walletId ? { walletId: v.walletId as string } : {}),
+      };
+    case "GET_RECEIVE_ADDRESS":
+      return hasKeys(v, ["type", "tokenAware"]) && typeof v.tokenAware === "boolean"
+        ? { type: "GET_RECEIVE_ADDRESS", tokenAware: v.tokenAware }
+        : bad;
+    case "PREPARE_SEND": {
+      if (!hasKeys(v, ["type", "recipients"]) || !Array.isArray(v.recipients)) return bad;
+      if (v.recipients.length === 0 || v.recipients.length > 50) return bad;
+      const recipients = v.recipients.map(recipient);
+      if (recipients.some((r) => r === null)) return bad;
+      return { type: "PREPARE_SEND", recipients: recipients as RecipientMessage[] };
     }
+    case "CONFIRM_SEND":
+      return hasKeys(v, ["type", "planId"]) && text(v.planId, 64)
+        ? { type: "CONFIRM_SEND", planId: v.planId }
+        : bad;
+    case "REVEAL_MNEMONIC":
+      return hasKeys(v, ["type", "password"]) && text(v.password, 1024)
+        ? { type: "REVEAL_MNEMONIC", password: v.password }
+        : bad;
+    case "CHANGE_PASSWORD":
+      return hasKeys(v, ["type", "oldPassword", "newPassword"]) &&
+        text(v.oldPassword, 1024) &&
+        text(v.newPassword, 1024)
+        ? { type: "CHANGE_PASSWORD", oldPassword: v.oldPassword, newPassword: v.newPassword }
+        : bad;
+    case "REMOVE_WALLET":
+      return hasKeys(v, ["type", "walletId", "password"]) &&
+        text(v.walletId, 64) &&
+        text(v.password, 1024)
+        ? { type: "REMOVE_WALLET", walletId: v.walletId, password: v.password }
+        : bad;
+    case "RENAME_WALLET":
+      return hasKeys(v, ["type", "walletId", "name"]) && text(v.walletId, 64) && text(v.name, 40)
+        ? { type: "RENAME_WALLET", walletId: v.walletId, name: v.name }
+        : bad;
+    case "SET_AUTO_LOCK":
+      return hasKeys(v, ["type", "minutes"]) &&
+        Number.isInteger(v.minutes) &&
+        (v.minutes as number) >= 1 &&
+        (v.minutes as number) <= 1440
+        ? { type: "SET_AUTO_LOCK", minutes: v.minutes as number }
+        : bad;
     default:
-      return { error: `unknown message type: ${value.type}` };
+      return { error: `unknown message type: ${v.type}` };
   }
 }
 
