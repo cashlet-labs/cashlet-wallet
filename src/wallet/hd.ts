@@ -10,8 +10,6 @@ export type Chain = 0 | 1;
 
 /** BIP44 account for Bitcoin Cash, coin type 145. */
 const BCH_ACCOUNT = "m/44'/145'/0'";
-/** NIP-06 path of the Nostr key, the same one BND derives (BND-1 section 3.2). */
-const NOSTR_PATH = "m/44'/1237'/0'/0/0";
 /** BIP32 indexes below 2^31; hardened indexes are not used for addresses. */
 const MAX_INDEX = 0x7fffffff;
 
@@ -90,9 +88,10 @@ export class HdWallet {
     return key;
   }
 
-  /** The Nostr key (NIP-06), as BND derives it. */
-  nostrKey(): { privateKey: Uint8Array; publicKey: string } {
-    const privateKey = this.root.derive(NOSTR_PATH).privateKey;
+  /** The Nostr key (NIP-06), as BND derives it. `account` changes when the key is rotated. */
+  nostrKey(account = 0): { privateKey: Uint8Array; publicKey: string } {
+    checkIndex(account);
+    const privateKey = this.root.derive(`m/44'/1237'/${account}'/0/0`).privateKey;
     if (!privateKey) throw new Error("Nostr key derivation failed");
     return { privateKey, publicKey: bytesToHex(schnorr.getPublicKey(privateKey)) };
   }

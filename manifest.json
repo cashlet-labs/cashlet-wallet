@@ -6,7 +6,7 @@
   "minimum_chrome_version": "116",
   "permissions": ["storage", "alarms", "sidePanel"],
   "content_security_policy": {
-    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'none'; base-uri 'none'; img-src 'self' data:; connect-src 'self' wss://bch.imaginary.cash:50004 wss://electrum.imaginary.cash:50004 wss://electroncash.dk:50004 wss://bch.loping.net:62104 wss://electron.jochen-hoenicke.de:51004 wss://chipnet.imaginary.cash:50004 wss://chipnet.bch.ninja:50004 wss://cbch.loping.net:62104"
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'none'; base-uri 'none'; img-src 'self' data:; connect-src 'self' wss://bch.imaginary.cash:50004 wss://electrum.imaginary.cash:50004 wss://electroncash.dk:50004 wss://bch.loping.net:62104 wss://electron.jochen-hoenicke.de:51004 wss://chipnet.imaginary.cash:50004 wss://chipnet.bch.ninja:50004 wss://cbch.loping.net:62104 wss://relay.septemlabs.com wss://relay.bongacash.co.ke wss://nos.lol wss://relay.primal.net wss://offchain.pub wss://relay.damus.io wss://nostr.mom"
   },
   "background": {
     "service_worker": "src/background/service-worker.ts",

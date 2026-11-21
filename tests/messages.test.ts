@@ -67,6 +67,37 @@ describe("parseRequest", () => {
     const event = { content: "x".repeat(70_000) };
     expect(parseRequest({ type: "VERIFY_BINDING", event })).toEqual({ error: "event too large" });
   });
+
+  it("checks identity requests", () => {
+    const npub = "npub1" + "q".repeat(58);
+    const did = `did:bnd:chipnet:${"ab".repeat(32)}:${"cd".repeat(32)}`;
+    expect(parseRequest({ type: "IDENTITY_STATUS" })).toEqual({ type: "IDENTITY_STATUS" });
+    expect(parseRequest({ type: "IDENTITY_ROTATE", key: "nostr" })).toEqual({
+      type: "IDENTITY_ROTATE",
+      key: "nostr",
+    });
+    expect(parseRequest({ type: "IDENTITY_PUBLIC_RELAYS", enabled: false })).toEqual({
+      type: "IDENTITY_PUBLIC_RELAYS",
+      enabled: false,
+    });
+    for (const target of [npub, did, "ab".repeat(32)])
+      expect(parseRequest({ type: "RESOLVE_PAYEE", target })).toEqual({
+        type: "RESOLVE_PAYEE",
+        target,
+      });
+
+    for (const value of [
+      { type: "IDENTITY_BIND", force: true },
+      { type: "IDENTITY_ROTATE", key: "recovery" },
+      { type: "IDENTITY_REVOKE" },
+      { type: "IDENTITY_REVOKE", password: "" },
+      { type: "IDENTITY_PUBLIC_RELAYS", enabled: "no" },
+      { type: "RESOLVE_PAYEE", target: "bob@example.com" },
+      { type: "RESOLVE_PAYEE", target: "npub1" + "b".repeat(58) },
+      { type: "RESOLVE_PAYEE", target: "did:web:example.com" },
+    ])
+      expect(parseRequest(value)).toHaveProperty("error");
+  });
 });
 
 describe("isExtensionSender", () => {

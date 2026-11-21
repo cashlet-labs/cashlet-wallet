@@ -75,6 +75,12 @@ describe("HdWallet", () => {
     expect(nostr.publicKey).toBe(deriveNostrKey(NIP06_VECTOR).publicKey);
   });
 
+  it("derives later Nostr accounts as BND does, for key rotation", () => {
+    const w = HdWallet.fromMnemonic(NIP06_VECTOR);
+    expect(w.nostrKey(1).publicKey).toBe(deriveNostrKey(NIP06_VECTOR, 1).publicKey);
+    expect(w.nostrKey(1).publicKey).not.toBe(w.nostrKey(0).publicKey);
+  });
+
   it("refuses out-of-range indexes", () => {
     expect(() => wallet.addressKey(0, -1)).toThrow("out of range");
     expect(() => wallet.addressKey(0, 2 ** 31)).toThrow("out of range");

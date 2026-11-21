@@ -146,3 +146,16 @@ test("settings: the phrase needs the password, and contacts are checked", async 
   await popup.getByRole("button", { name: "Save" }).click();
   await expect(popup.getByText("Ann")).toBeVisible();
 });
+
+// Reads the real relays but never publishes: the test vector's identity is shared by everyone.
+test("identity shows the wallet's Nostr key and the address it names", async ({ popup }) => {
+  await importVector(popup);
+  await popup.getByRole("button", { name: "Identity" }).click();
+  await expect(popup.getByRole("heading", { name: "Identity" })).toBeVisible();
+  await expect(popup.getByTestId("npub")).toHaveText(/^npub1[02-9ac-hj-np-z]{58}$/, {
+    timeout: 30_000,
+  });
+  await expect(popup.getByTestId("identity-address")).toHaveText(/^bchtest:q/);
+  await expect(popup.getByTestId("identity-state")).not.toBeEmpty();
+  await expect(popup.getByLabel(/Also publish to public Nostr relays/)).toBeChecked();
+});

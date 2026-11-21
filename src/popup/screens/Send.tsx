@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { RecipientMessage, ResponseFor } from "../../shared/messages";
+import { isPayeeTarget, type RecipientMessage, type ResponseFor } from "../../shared/messages";
 import { parsePaymentRequest } from "../../wallet/address";
 import { formatBch, parseBch } from "../../wallet/amount";
 import { call } from "../api";
@@ -9,6 +9,7 @@ import { loadContacts, type Contact } from "../contacts";
 type Plan = Extract<ResponseFor["PREPARE_SEND"], { ok: true }>;
 type Balance = Extract<ResponseFor["GET_BALANCE"], { ok: true }>;
 type Network = "mainnet" | "chipnet";
+type Payee = Extract<ResponseFor["RESOLVE_PAYEE"], { ok: true }>;
 
 /** Send: the form, then a review of exactly what will be signed, then the result. */
 export function Send({ network, onBack }: { network: Network; onBack: () => void }) {
@@ -19,6 +20,7 @@ export function Send({ network, onBack }: { network: Network; onBack: () => void
   const [balance, setBalance] = useState<Balance | null>(null);
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [plan, setPlan] = useState<Plan | null>(null);
+  const [payee, setPayee] = useState<Payee | null>(null);
   const [txid, setTxid] = useState<string | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
@@ -59,12 +61,20 @@ export function Send({ network, onBack }: { network: Network; onBack: () => void
     setBusy(true);
     setError(null);
     try {
-      const destination = parsePaymentRequest(to, network).destination;
+      // An npub or did:bnd is resolved on the relays to its current, verified address.
+      const target = to.trim();
+      const resolved = isPayeeTarget(target) ? await call({ type: "RESOLVE_PAYEE", target }) : null;
+      setPayee(resolved);
+      const address = resolved
+        ? asset === "bch"
+          ? resolved.address
+          : resolved.tokenAddress
+        : parsePaymentRequest(to, network).destination.address;
       const recipient: RecipientMessage =
         asset === "bch"
-          ? { address: destination.address, value: parseBch(amount) }
+          ? { address, value: parseBch(amount) }
           : {
-              address: destination.address,
+              address,
               value: 0,
               token: {
                 category: asset,
@@ -100,6 +110,18 @@ export function Send({ network, onBack }: { network: Network; onBack: () => void
   if (plan) {
     return (
       <Screen title="Review" back={() => setPlan(null)}>
+        {payee && (
+          <div className="card stack" data-testid="payee">
+            <span className="notice ok">Verified identity</span>
+            <span className="small muted">Nostr key</span>
+            <code>{payee.npub}</code>
+            <span className="small muted">DID</span>
+            <code>{payee.did}</code>
+            <span className="small muted">
+              The address below is this identity&apos;s current one, checked on the relays.
+            </span>
+          </div>
+        )}
         <dl className="review card">
           {plan.outputs
             .filter((o) => !o.change)
@@ -179,7 +201,11 @@ export function Send({ network, onBack }: { network: Network; onBack: () => void
       <label>
         To
         <input
-          placeholder={network === "mainnet" ? "bitcoincash:…" : "bchtest:…"}
+          placeholder={
+            network === "mainnet"
+              ? "bitcoincash:…, npub1… or did:bnd:…"
+              : "bchtest:…, npub1… or did:bnd:…"
+          }
           autoComplete="off"
           spellCheck={false}
           value={to}
