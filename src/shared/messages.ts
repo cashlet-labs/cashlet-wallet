@@ -67,7 +67,9 @@ export type Request =
   | { type: "WIZARD_LIST" }
   | { type: "WIZARD_DISCONNECT"; id: string }
   | { type: "GET_RATE" }
-  | { type: "SET_FIAT"; currency: string };
+  | { type: "SET_FIAT"; currency: string }
+  | { type: "SIGN_MESSAGE"; source: "identity" | "receive"; message: string }
+  | { type: "VERIFY_MESSAGE"; address: string; message: string; signature: string };
 
 export type RequestType = Request["type"];
 
@@ -205,7 +207,10 @@ export interface ResponseFor {
   RESOLVE_PAYEE: { ok: true; address: string; tokenAddress: string; did: string; npub: string };
   APPROVALS_LIST: { ok: true; approvals: ApprovalView[]; npub: string | null };
   APPROVAL_DECIDE: { ok: true };
-  SITES_LIST: { ok: true; sites: { origin: string; kinds: number[]; connectedAt: number }[] };
+  SITES_LIST: {
+    ok: true;
+    sites: { origin: string; kinds: number[]; ciphers?: string[]; connectedAt: number }[];
+  };
   SITE_REMOVE: { ok: true };
   WIZARD_CONNECT: { ok: true; id: string };
   WIZARD_LIST: { ok: true; connections: WizardConnectionView[] };
@@ -220,6 +225,8 @@ export interface ResponseFor {
     testCoins: boolean;
   };
   SET_FIAT: { ok: true };
+  SIGN_MESSAGE: { ok: true; address: string; signature: string };
+  VERIFY_MESSAGE: { ok: true; valid: boolean };
   SERVER_HEALTH: {
     ok: true;
     current: string | null;
@@ -230,6 +237,7 @@ export interface ResponseFor {
 export type ErrorResponse = { ok: false; error: string; code?: string };
 
 const MAX_EVENT_BYTES = 64 * 1024;
+const MAX_SIGNED_MESSAGE_CHARS = 64 * 1024;
 const HEX32 = /^[0-9a-f]{64}$/;
 
 type Fields = Record<string, unknown>;
@@ -496,6 +504,24 @@ export function parseRequest(value: unknown): Request | { error: string } {
     case "SITE_REMOVE":
       return hasKeys(v, ["type", "origin"]) && text(v.origin, 300)
         ? { type: "SITE_REMOVE", origin: v.origin }
+        : bad;
+    case "SIGN_MESSAGE":
+      return hasKeys(v, ["type", "source", "message"]) &&
+        (v.source === "identity" || v.source === "receive") &&
+        text(v.message, MAX_SIGNED_MESSAGE_CHARS)
+        ? { type: "SIGN_MESSAGE", source: v.source, message: v.message }
+        : bad;
+    case "VERIFY_MESSAGE":
+      return hasKeys(v, ["type", "address", "message", "signature"]) &&
+        text(v.address, 120) &&
+        text(v.message, MAX_SIGNED_MESSAGE_CHARS) &&
+        text(v.signature, 200)
+        ? {
+            type: "VERIFY_MESSAGE",
+            address: v.address,
+            message: v.message,
+            signature: v.signature,
+          }
         : bad;
     default:
       return { error: `unknown message type: ${v.type}` };

@@ -15,7 +15,10 @@ import {
   type UnsignedEvent,
 } from "@cashlet-labs/bnd";
 
+import { isCipherMethod, parseCipherRequest, type CipherRequest } from "./page-cipher";
+
 export type PageRequest =
+  | CipherRequest
   | { method: "nostr.getPublicKey" }
   | { method: "nostr.getRelays" }
   | { method: "nostr.signEvent"; event: UnsignedEvent }
@@ -139,6 +142,7 @@ export function parsePageRequest(value: unknown, origin: string): PageRequest | 
       }
     }
     default:
+      if (isCipherMethod(value.method)) return parseCipherRequest(value.method, params);
       return { error: `unsupported method: ${value.method}` };
   }
 }

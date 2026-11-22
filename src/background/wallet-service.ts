@@ -4,6 +4,7 @@ import { discoverBinding, publishBinding } from "@cashlet-labs/bnd/nostr";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import type { ErrorResponse, PlannedOutputMessage, Request, ResponseFor } from "../shared/messages";
 import type { PageRequest } from "../shared/page-messages";
+import { signMessage, verifyMessage } from "../wallet/signed-message";
 import { allRelayUrls, Identity, PUBLIC_RELAYS, type RelayApi } from "../wallet/identity";
 import { p2pkhLockingBytecode } from "../wallet/indexer";
 import { RateService, type FiatChoice } from "../wallet/rates";
@@ -396,9 +397,10 @@ export class WalletService {
       case "SITES_LIST":
         return {
           ok: true,
-          sites: (await this.gate.sites()).map(({ origin, kinds, connectedAt }) => ({
+          sites: (await this.gate.sites()).map(({ origin, kinds, ciphers, connectedAt }) => ({
             origin,
             kinds,
+            ...(ciphers?.length ? { ciphers } : {}),
             connectedAt,
           })),
         };
@@ -422,6 +424,25 @@ export class WalletService {
       case "WIZARD_DISCONNECT":
         this.active().wizard?.disconnect(request.id);
         return { ok: true };
+      case "SIGN_MESSAGE": {
+        // The user asked on the wallet's own screen, so an unlocked wallet signs without asking again.
+        const { identity, scanner } = this.active();
+        const { wallet, network } = session.current();
+        const index =
+          request.source === "identity"
+            ? (await identity.keys()).bchIndex
+            : (await scanner.nextAddress(0)).index;
+        return {
+          ok: true,
+          address: wallet.address(0, index, network),
+          signature: signMessage(wallet.privateKey(0, index), request.message),
+        };
+      }
+      case "VERIFY_MESSAGE":
+        return {
+          ok: true,
+          valid: verifyMessage(request.address, request.message, request.signature),
+        };
       case "SERVER_HEALTH": {
         const { connection } = this.active();
         return {

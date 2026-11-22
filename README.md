@@ -67,12 +67,19 @@ On https pages (and `localhost` for development) the wallet provides:
   signature is approved unless the user chose "don't ask again" for that
   event kind on that site. Profile, follow-list, relay-list, deletion and login
   events always ask. Sites cannot sign BND bindings.
+- `window.nostr.nip04` and `window.nostr.nip44`, each with `encrypt(pubkey, plaintext)`
+  and `decrypt(pubkey, ciphertext)`. The site must be connected first, and each call
+  is approved unless the user chose "don't ask again" for that method on that site.
+  The wallet shows the other key and, when encrypting, the text.
 - `window.bnd.login(challenge)`, which answers a BND login challenge
   (`issueChallenge` in [`@cashlet-labs/bnd`](https://www.npmjs.com/package/@cashlet-labs/bnd))
   with the wallet's identity. The challenge's audience must be on the page's
   own origin. Send the result to your server and check it with `verifyLogin`.
 
 Connected sites are listed, and can be disconnected, under Settings.
+
+Settings also has **Sign a message** and **Verify a message** for Bitcoin Signed Messages
+(a base64 signature that proves an address is yours). Sites cannot ask for these.
 
 ## Development
 

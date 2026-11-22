@@ -5,6 +5,7 @@ import { CopyButton, ErrorNotice, NewPassword, Screen } from "../components/comm
 import { FIAT_CURRENCIES, type FiatChoice } from "../../wallet/rates";
 import { deleteContact, loadContacts, saveContact, type Contact } from "../contacts";
 import { FeeRate, PreferredServer } from "./NetworkSettings";
+import { SignMessage, VerifyMessage } from "./SignMessage";
 
 type Health = Extract<ResponseFor["SERVER_HEALTH"], { ok: true }>;
 
@@ -20,13 +21,23 @@ export function Settings({
   onChanged: () => void;
 }) {
   const [section, setSection] = useState<
-    "main" | "phrase" | "password" | "servers" | "contacts" | "wallets" | "sites"
+    | "main"
+    | "phrase"
+    | "password"
+    | "servers"
+    | "contacts"
+    | "wallets"
+    | "sites"
+    | "sign"
+    | "verify"
   >("main");
   const back = () => setSection("main");
   if (section === "phrase") return <RevealPhrase onBack={back} />;
   if (section === "password") return <ChangePassword onBack={back} />;
   if (section === "servers") return <Servers onBack={back} />;
   if (section === "sites") return <Sites onBack={back} />;
+  if (section === "sign") return <SignMessage onBack={back} />;
+  if (section === "verify") return <VerifyMessage onBack={back} />;
   if (section === "contacts")
     return <Contacts network={status.network ?? "chipnet"} onBack={back} />;
   if (section === "wallets")
@@ -45,6 +56,12 @@ export function Settings({
         </button>
         <button type="button" className="wide" onClick={() => setSection("sites")}>
           Connected sites
+        </button>
+        <button type="button" className="wide" onClick={() => setSection("sign")}>
+          Sign a message
+        </button>
+        <button type="button" className="wide" onClick={() => setSection("verify")}>
+          Verify a message
         </button>
         <button type="button" className="wide" onClick={() => setSection("phrase")}>
           Show recovery phrase
@@ -102,6 +119,9 @@ function Sites({ onBack }: { onBack: () => void }) {
                   {site.kinds.length === 0
                     ? "Reads your public key; asks before signing"
                     : `Signs event kind${site.kinds.length === 1 ? "" : "s"} ${site.kinds.join(", ")} without asking`}
+                  {site.ciphers?.length
+                    ? `. Allowed to ${site.ciphers.map((c) => c.replace("nostr.", "").replace(".", " ")).join(", ")} without asking`
+                    : ""}
                 </span>
               </span>
               <button

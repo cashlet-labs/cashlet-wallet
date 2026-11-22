@@ -3,6 +3,7 @@ import type { ResponseFor } from "../../shared/messages";
 import { call } from "../api";
 import { ErrorNotice, Screen } from "../components/common";
 import { poll } from "../errors";
+import { CipherDetails } from "./CipherApproval";
 
 type List = Extract<ResponseFor["APPROVALS_LIST"], { ok: true }>;
 type Approval = List["approvals"][number];
@@ -97,6 +98,8 @@ function Details({ approval, npub }: { approval: Approval; npub: string | null }
   if (approval.type === "transaction" && approval.transaction) {
     return <Transaction tx={approval.transaction} />;
   }
+  if (approval.type === "encrypt" || approval.type === "decrypt")
+    return <CipherDetails approval={approval} />;
   if (approval.type === "connect") {
     return (
       <div className="card stack">
@@ -227,7 +230,9 @@ export function Approvals({ onDone }: { onDone: () => void }) {
           <span>
             {approval.type === "connect"
               ? "Remember this site"
-              : "Don't ask again for this kind of event on this site"}
+              : approval.cipher
+                ? `Don't ask again to ${approval.type} with ${approval.cipher.scheme === "nip04" ? "NIP-04" : "NIP-44"} on this site`
+                : "Don't ask again for this kind of event on this site"}
           </span>
         </label>
       )}
@@ -246,12 +251,16 @@ export function Approvals({ onDone }: { onDone: () => void }) {
             ? "Connect"
             : approval.type === "login"
               ? "Log in"
-              : approval.type === "transaction"
-                ? approval.transaction?.broadcast &&
-                  approval.transaction.signing.count === approval.transaction.inputs
-                  ? "Sign and send"
-                  : "Sign"
-                : "Sign"}
+              : approval.type === "encrypt"
+                ? "Encrypt"
+                : approval.type === "decrypt"
+                  ? "Decrypt"
+                  : approval.type === "transaction"
+                    ? approval.transaction?.broadcast &&
+                      approval.transaction.signing.count === approval.transaction.inputs
+                      ? "Sign and send"
+                      : "Sign"
+                    : "Sign"}
         </button>
       </div>
     </Screen>

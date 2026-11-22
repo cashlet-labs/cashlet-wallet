@@ -43,6 +43,18 @@
     getPublicKey: () => call("nostr.getPublicKey"),
     signEvent: (event: unknown) => call("nostr.signEvent", { event }),
     getRelays: () => call("nostr.getRelays"),
+    nip04: Object.freeze({
+      encrypt: (pubkey: unknown, plaintext: unknown) =>
+        call("nostr.nip04.encrypt", { pubkey, plaintext }),
+      decrypt: (pubkey: unknown, ciphertext: unknown) =>
+        call("nostr.nip04.decrypt", { pubkey, ciphertext }),
+    }),
+    nip44: Object.freeze({
+      encrypt: (pubkey: unknown, plaintext: unknown) =>
+        call("nostr.nip44.encrypt", { pubkey, plaintext }),
+      decrypt: (pubkey: unknown, ciphertext: unknown) =>
+        call("nostr.nip44.decrypt", { pubkey, ciphertext }),
+    }),
   });
 
   const bnd = Object.freeze({

@@ -569,3 +569,11 @@ input[aria-invalid="true"] {
 .fiat-line {
   min-height: 1.2em;
 }
+
+/* Signing */
+.card code {
+  overflow-wrap: anywhere;
+}
+textarea {
+  resize: vertical;
+}
