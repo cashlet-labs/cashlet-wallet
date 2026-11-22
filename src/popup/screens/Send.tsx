@@ -25,6 +25,8 @@ export function Send({ network, onBack }: { network: Network; onBack: () => void
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
   const [expired, setExpired] = useState(false);
+  // True while the amount is the one worked out by Max; editing it turns it off.
+  const [maxed, setMaxed] = useState(false);
 
   // A prepared send can be confirmed for two minutes; after that it must be reviewed again.
   useEffect(() => {
@@ -52,6 +54,25 @@ export function Send({ network, onBack }: { network: Network; onBack: () => void
       } catch {
         // Shown when the user continues.
       }
+    }
+  };
+
+  /** Fill in the largest amount that can go to the entered recipient. */
+  const useMax = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const target = to.trim();
+      const address = isPayeeTarget(target)
+        ? (await call({ type: "RESOLVE_PAYEE", target })).address
+        : parsePaymentRequest(to, network).destination.address;
+      const max = await call({ type: "GET_MAX_SEND", address });
+      setAmount(formatBch(max.value));
+      setMaxed(true);
+    } catch (e) {
+      setError(e);
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -83,7 +104,13 @@ export function Send({ network, onBack }: { network: Network; onBack: () => void
             };
       if (recipient.token?.amount === "invalid")
         throw new RangeError("enter a whole number of tokens");
-      setPlan(await call({ type: "PREPARE_SEND", recipients: [recipient] }));
+      setPlan(
+        await call({
+          type: "PREPARE_SEND",
+          recipients: [recipient],
+          ...(maxed && asset === "bch" ? { max: true as const } : {}),
+        }),
+      );
     } catch (e) {
       setError(e);
     } finally {
@@ -238,15 +265,24 @@ export function Send({ network, onBack }: { network: Network; onBack: () => void
       {asset === "bch" ? (
         <label>
           Amount (BCH)
-          <input
-            inputMode="decimal"
-            placeholder="0.00"
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
-          />
+          <span className="amount-row">
+            <input
+              inputMode="decimal"
+              placeholder="0.00"
+              value={amount}
+              onChange={(e) => {
+                setAmount(e.target.value);
+                setMaxed(false);
+              }}
+            />
+            <button type="button" disabled={busy || !to} onClick={useMax}>
+              Max
+            </button>
+          </span>
           {balance && (
             <span className="small muted">
               Available: <Bch sats={balance.confirmed + balance.unconfirmed} />
+              {maxed && ". Max sends all BCH coins and leaves the tokens."}
             </span>
           )}
         </label>

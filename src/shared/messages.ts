@@ -9,6 +9,7 @@
 import type { BchNetwork } from "@cashlet-labs/bnd";
 import type { ApprovalView } from "../background/sites";
 import type { WizardConnectionView } from "../background/wizard";
+import { isBuiltInServer, isFeeRate } from "../wallet/net-settings";
 
 export interface RecipientMessage {
   address: string;
@@ -34,7 +35,11 @@ export type Request =
   | { type: "GET_RECEIVE_ADDRESS"; tokenAware: boolean }
   | { type: "GET_BALANCE" }
   | { type: "GET_HISTORY" }
-  | { type: "PREPARE_SEND"; recipients: RecipientMessage[] }
+  | { type: "PREPARE_SEND"; recipients: RecipientMessage[]; max?: true }
+  | { type: "GET_MAX_SEND"; address: string }
+  | { type: "GET_NETWORK_SETTINGS" }
+  | { type: "SET_FEE_RATE"; rate: number | null }
+  | { type: "SET_PREFERRED_SERVER"; network: BchNetwork; url: string | null }
   | { type: "CONFIRM_SEND"; planId: string }
   | { type: "REVEAL_MNEMONIC"; password: string }
   | { type: "CHANGE_PASSWORD"; oldPassword: string; newPassword: string }
@@ -118,6 +123,21 @@ export interface ResponseFor {
     outputs: PlannedOutputMessage[];
     expiresAt: number;
   };
+  GET_MAX_SEND: { ok: true; value: number; fee: number };
+  GET_NETWORK_SETTINGS: {
+    ok: true;
+    network: BchNetwork;
+    /** Chosen fee rate in sat/byte, or null for automatic. */
+    feeRate: number | null;
+    minFeeRate: number;
+    maxFeeRate: number;
+    /** The built-in servers for this network. */
+    servers: string[];
+    /** The preferred server, or null for automatic. */
+    preferredServer: string | null;
+  };
+  SET_FEE_RATE: { ok: true };
+  SET_PREFERRED_SERVER: { ok: true };
   CONFIRM_SEND: { ok: true; txid: string };
   REVEAL_MNEMONIC: { ok: true; mnemonic: string };
   CHANGE_PASSWORD: { ok: true };
@@ -295,12 +315,34 @@ export function parseRequest(value: unknown): Request | { error: string } {
         ? { type: "GET_RECEIVE_ADDRESS", tokenAware: v.tokenAware }
         : bad;
     case "PREPARE_SEND": {
-      if (!hasKeys(v, ["type", "recipients"]) || !Array.isArray(v.recipients)) return bad;
+      if (!hasKeys(v, ["type", "recipients"], ["max"]) || !Array.isArray(v.recipients)) return bad;
       if (v.recipients.length === 0 || v.recipients.length > 50) return bad;
       const recipients = v.recipients.map(recipient);
       if (recipients.some((r) => r === null)) return bad;
+      if (v.max !== undefined) {
+        // A max send is BCH to one address; the amount is worked out by the wallet.
+        const [only] = recipients as RecipientMessage[];
+        if (v.max !== true || recipients.length !== 1 || only!.token || only!.nft) return bad;
+        return { type: "PREPARE_SEND", recipients: [only!], max: true };
+      }
       return { type: "PREPARE_SEND", recipients: recipients as RecipientMessage[] };
     }
+    case "GET_MAX_SEND":
+      return hasKeys(v, ["type", "address"]) && text(v.address, 120)
+        ? { type: "GET_MAX_SEND", address: v.address }
+        : bad;
+    case "GET_NETWORK_SETTINGS":
+      return hasKeys(v, ["type"]) ? { type: "GET_NETWORK_SETTINGS" } : bad;
+    case "SET_FEE_RATE":
+      return hasKeys(v, ["type", "rate"]) && (v.rate === null || isFeeRate(v.rate))
+        ? { type: "SET_FEE_RATE", rate: v.rate }
+        : bad;
+    case "SET_PREFERRED_SERVER":
+      return hasKeys(v, ["type", "network", "url"]) &&
+        network(v.network) &&
+        (v.url === null || isBuiltInServer(v.network, v.url))
+        ? { type: "SET_PREFERRED_SERVER", network: v.network, url: v.url }
+        : bad;
     case "CONFIRM_SEND":
       return hasKeys(v, ["type", "planId"]) && text(v.planId, 64)
         ? { type: "CONFIRM_SEND", planId: v.planId }

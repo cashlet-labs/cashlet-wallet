@@ -300,7 +300,11 @@ function unsignedSize(inputs: Utxo[], outputs: Draft["outputs"]): number {
   ).length;
 }
 
-function sign(request: SendRequest, inputs: Utxo[], outputs: Draft["outputs"]): SendPlan {
+function sign(
+  request: Pick<SendRequest, "keyFor" | "lockingBytecodeFor">,
+  inputs: Utxo[],
+  outputs: Draft["outputs"],
+): SendPlan {
   const sourceOutputs = inputs.map((u) =>
     toOutput(request.lockingBytecodeFor(u), u.value, u.token),
   );
@@ -348,4 +352,47 @@ function sign(request: SendRequest, inputs: Utxo[], outputs: Draft["outputs"]): 
     })),
     outgoing: toOthers + fee,
   };
+}
+
+/** What one P2PKH input adds to a transaction: outpoint, length byte, unlocking script, sequence. */
+const P2PKH_INPUT_SIZE = 32 + 4 + 1 + P2PKH_UNLOCKING_LENGTH + 4;
+/** The relay limit for a standard transaction. */
+const MAX_STANDARD_SIZE = 100_000;
+
+export interface MaxSendRequest extends Omit<SendRequest, "recipients" | "changeAddress"> {
+  address: string;
+}
+
+/**
+ * Send everything that can be spent as BCH to one address, with no change output.
+ *
+ * Only pure BCH UTXOs are spent, so tokens and NFTs are never touched. A UTXO
+ * worth no more than the fee it adds is left unspent. The amount is the total
+ * minus the exact fee of this transaction.
+ */
+export function buildSendMax(request: MaxSendRequest): SendPlan {
+  const feeRate = request.feeRate ?? DEFAULT_FEE_RATE;
+  if (!Number.isFinite(feeRate) || feeRate < DEFAULT_FEE_RATE || feeRate > MAX_FEE_RATE) {
+    throw new SendError(
+      `the fee rate must be between ${DEFAULT_FEE_RATE} and ${MAX_FEE_RATE} sat/byte`,
+    );
+  }
+  const destination = parseDestination(request.address, request.network);
+  const inputs = request.utxos
+    .filter((u) => u.token === null && u.value > Math.ceil(P2PKH_INPUT_SIZE * feeRate))
+    .sort((a, b) => Number(b.height > 0) - Number(a.height > 0) || b.value - a.value);
+  if (inputs.length === 0) throw new SendError("there is no BCH to send");
+
+  const to = (value: number) => [{ destination, value, token: null, change: false }];
+  const size = unsignedSize(inputs, to(0));
+  if (size > MAX_STANDARD_SIZE)
+    throw new SendError("too many coins to send at once; send a smaller amount first");
+  const fee = Math.ceil(size * feeRate);
+  const value = inputs.reduce((s, u) => s + u.value, 0) - fee;
+  const dust = dustFor(destination.lockingBytecode, null);
+  if (value < dust)
+    throw new SendError(
+      `the balance is too small: after the ${fee} sat fee, less than ${dust} satoshis is left`,
+    );
+  return sign(request, inputs, to(value));
 }

@@ -7,7 +7,15 @@ import type { PageRequest } from "../shared/page-messages";
 import { allRelayUrls, Identity, PUBLIC_RELAYS, type RelayApi } from "../wallet/identity";
 import { p2pkhLockingBytecode } from "../wallet/indexer";
 import { Scanner, type IndexerSource } from "../wallet/scanner";
-import { buildSend, type SendPlan } from "../wallet/send";
+import {
+  loadFeeRate,
+  loadPreferredServer,
+  MAX_FEE_RATE as MAX_SETTING_FEE_RATE,
+  MIN_FEE_RATE as MIN_SETTING_FEE_RATE,
+  saveFeeRate,
+  savePreferredServer,
+} from "../wallet/net-settings";
+import { buildSend, buildSendMax, type SendPlan } from "../wallet/send";
 import {
   LockedError,
   ThrottledError,
@@ -16,6 +24,7 @@ import {
 } from "../wallet/session";
 import type { WalletStore } from "../wallet/store";
 import { WrongPasswordError } from "../wallet/vault";
+import { NETWORKS } from "../electrum/servers";
 import { SiteGate } from "./sites";
 import { WizardConnections, type CreateWizardManager } from "./wizard";
 
@@ -30,7 +39,8 @@ export interface Connection extends IndexerSource {
 export interface ServiceDeps {
   session: WalletSession;
   settings: KeyValueStore;
-  connect: (network: "mainnet" | "chipnet") => Connection;
+  /** `preferredServer` is the user's choice from the built-in list, to try first. */
+  connect: (network: "mainnet" | "chipnet", preferredServer?: string | null) => Connection;
   openStore: (walletId: string) => Promise<WalletStore>;
   now?: () => number;
   /** Called whenever the auto-lock timer should restart. */
@@ -233,7 +243,29 @@ export class WalletService {
         };
       }
       case "PREPARE_SEND":
-        return this.prepareSend(request.recipients);
+        return this.prepareSend(request.recipients, request.max === true);
+      case "GET_MAX_SEND": {
+        const { plan } = await this.maxPlan(request.address);
+        return { ok: true, value: plan.outputs[0]!.value, fee: plan.fee };
+      }
+      case "GET_NETWORK_SETTINGS": {
+        const { network } = this.deps.session.current();
+        return {
+          ok: true,
+          network,
+          feeRate: await loadFeeRate(this.deps.settings),
+          minFeeRate: MIN_SETTING_FEE_RATE,
+          maxFeeRate: MAX_SETTING_FEE_RATE,
+          servers: [...NETWORKS[network].servers],
+          preferredServer: await loadPreferredServer(this.deps.settings, network),
+        };
+      }
+      case "SET_FEE_RATE":
+        await saveFeeRate(this.deps.settings, request.rate);
+        return { ok: true };
+      case "SET_PREFERRED_SERVER":
+        await savePreferredServer(this.deps.settings, request.network, request.url);
+        return { ok: true };
       case "CONFIRM_SEND":
         return this.confirmSend(request.planId);
       case "REVEAL_MNEMONIC":
@@ -373,10 +405,11 @@ export class WalletService {
   /** Connect and scan the unlocked wallet. The scan continues in the background. */
   private async start(): Promise<void> {
     const { id, wallet, network } = this.deps.session.current();
+    const preferred = await loadPreferredServer(this.deps.settings, network);
     this.runtime?.scanner.stop();
     this.runtime?.wizard?.close();
     this.runtime?.connection.close();
-    const connection = this.deps.connect(network);
+    const connection = this.deps.connect(network, preferred);
     const store = await this.deps.openStore(id);
     const scanner = new Scanner(wallet, network, connection, store);
     const identity = new Identity(
@@ -419,42 +452,73 @@ export class WalletService {
     );
   }
 
-  private async prepareSend(
-    recipients: Extract<Request, { type: "PREPARE_SEND" }>["recipients"],
-  ): Promise<ResponseFor["PREPARE_SEND"]> {
-    const { wallet, network, id } = this.deps.session.current();
-    const runtime = this.active();
-    const feeRate = runtime.feeRate;
+  /** Fee rate in sat/byte: the user's choice, else the server's relay fee. */
+  private async feeRate(runtime: Runtime): Promise<number> {
+    return (await loadFeeRate(this.deps.settings)) ?? runtime.feeRate;
+  }
+
+  /** What signing a send needs from this wallet. */
+  private signing(runtime: Runtime) {
+    const { wallet } = this.deps.session.current();
     const locate = (scripthash: string) => {
       const address = runtime.scanner.addressFor(scripthash);
       if (!address) throw new Error("an output belongs to an address this wallet does not know");
       return address;
     };
-    const plan = buildSend({
-      network,
-      utxos: await runtime.store.utxos(),
-      recipients: recipients.map((r) => ({
-        address: r.address,
-        value: r.value,
-        ...(r.token
-          ? { token: { category: r.token.category, amount: BigInt(r.token.amount) } }
-          : {}),
-        ...(r.nft ? { nft: r.nft } : {}),
-      })),
-      changeAddress: (await runtime.scanner.nextAddress(1, true)).address,
-      feeRate,
-      keyFor: (utxo) => {
+    return {
+      keyFor: (utxo: { scripthash: string }) => {
         const { chain, index } = locate(utxo.scripthash);
         return {
           privateKey: wallet.privateKey(chain, index),
           publicKey: wallet.addressKey(chain, index).publicKey,
         };
       },
-      lockingBytecodeFor: (utxo) => {
+      lockingBytecodeFor: (utxo: { scripthash: string }) => {
         const { chain, index } = locate(utxo.scripthash);
         return p2pkhLockingBytecode(wallet.addressKey(chain, index).keyHash);
       },
-    });
+    };
+  }
+
+  /** The largest BCH send to an address: all pure BCH coins, no change. */
+  private async maxPlan(address: string): Promise<{ plan: SendPlan }> {
+    const { network } = this.deps.session.current();
+    const runtime = this.active();
+    return {
+      plan: buildSendMax({
+        network,
+        utxos: await runtime.store.utxos(),
+        address,
+        feeRate: await this.feeRate(runtime),
+        ...this.signing(runtime),
+      }),
+    };
+  }
+
+  private async prepareSend(
+    recipients: Extract<Request, { type: "PREPARE_SEND" }>["recipients"],
+    max = false,
+  ): Promise<ResponseFor["PREPARE_SEND"]> {
+    const { network, id } = this.deps.session.current();
+    const runtime = this.active();
+    const feeRate = await this.feeRate(runtime);
+    const plan = max
+      ? (await this.maxPlan(recipients[0]!.address)).plan
+      : buildSend({
+          network,
+          utxos: await runtime.store.utxos(),
+          recipients: recipients.map((r) => ({
+            address: r.address,
+            value: r.value,
+            ...(r.token
+              ? { token: { category: r.token.category, amount: BigInt(r.token.amount) } }
+              : {}),
+            ...(r.nft ? { nft: r.nft } : {}),
+          })),
+          changeAddress: (await runtime.scanner.nextAddress(1, true)).address,
+          feeRate,
+          ...this.signing(runtime),
+        });
     const planId = bytesToHex(crypto.getRandomValues(new Uint8Array(16)));
     const expiresAt = this.now() + PLAN_TTL_MS;
     this.plans.set(planId, { plan, walletId: id, expiresAt });
