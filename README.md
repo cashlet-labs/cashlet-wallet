@@ -8,6 +8,8 @@ New wallets use mainnet. To try Cashlet with free test coins, open
 **Developer options** when you create or restore a wallet and tick
 **Use chipnet, the test network**.
 
+<a href="#support-cashlet"><img src="docs/support-cashlet.png" width="480" alt="Support Cashlet: bitcoincash:zpwd6edurja89cdq7hppvzq6xxzj5ct58uqf9czcx9"></a>
+
 <p>
   <img src="docs/screenshot-home.png" width="190" alt="Home">
   <img src="docs/screenshot-receive.png" width="190" alt="Receive: a token-aware address by default">
