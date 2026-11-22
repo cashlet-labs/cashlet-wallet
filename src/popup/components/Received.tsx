@@ -4,12 +4,14 @@ import { call } from "../api";
 import { poll } from "../errors";
 
 /**
- * A short notice when money arrives, on whatever screen is open. It watches the
- * wallet's BCH balance: a rise is a payment in, since a send only lowers it.
+ * A short notice when money arrives, on whatever screen is open. A new payment
+ * first shows as unconfirmed, so the notice needs both the total and the
+ * unconfirmed balance to rise. Past payments found while the wallet scans are
+ * already confirmed, and a send lowers the total, so neither shows a notice.
  * The first reading after unlocking, or after switching wallets, is only remembered.
  */
-export function Received({ walletId, scanning }: { walletId: string; scanning: boolean }) {
-  const last = useRef<{ walletId: string; total: number } | null>(null);
+export function Received({ walletId }: { walletId: string }) {
+  const last = useRef<{ walletId: string; total: number; unconfirmed: number } | null>(null);
   const [notice, setNotice] = useState<{ sats: number; at: number } | null>(null);
 
   useEffect(() => {
@@ -22,12 +24,12 @@ export function Received({ walletId, scanning }: { walletId: string; scanning: b
         const balance = await call({ type: "GET_BALANCE" });
         const total = balance.confirmed + balance.unconfirmed;
         const before = last.current;
-        last.current = { walletId, total };
-        // While the first scan runs, the balance climbs as old payments are found.
-        if (!before || before.walletId !== walletId || scanning) return;
-        if (total > before.total) setNotice({ sats: total - before.total, at: Date.now() });
+        last.current = { walletId, total, unconfirmed: balance.unconfirmed };
+        if (!before || before.walletId !== walletId) return;
+        const received = Math.min(total - before.total, balance.unconfirmed - before.unconfirmed);
+        if (received > 0) setNotice({ sats: received, at: Date.now() });
       }, 3_000),
-    [walletId, scanning],
+    [walletId],
   );
 
   useEffect(() => {

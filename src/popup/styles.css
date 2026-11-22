@@ -47,15 +47,23 @@ body {
   font-size: 14px;
   line-height: 1.5;
 }
-body {
-  width: 380px;
-  min-height: 600px;
+/*
+ * The popup is 380 by 600. The side panel and a tab fill their frame, which can
+ * be narrower than the popup. Only the screen's content scrolls, and only up
+ * and down; the top bar stays in place.
+ */
+html,
+body,
+#root {
+  height: 100%;
 }
-/* The side panel is wider than the popup. */
-@media (min-width: 420px) {
-  body {
-    width: 100%;
-  }
+body {
+  width: 100%;
+  overflow: hidden;
+}
+html[data-surface="popup"] body {
+  width: 380px;
+  height: 600px;
 }
 h1,
 h2,
@@ -94,7 +102,31 @@ code,
 .app {
   display: flex;
   flex-direction: column;
-  min-height: 600px;
+  height: 100%;
+  min-width: 0;
+}
+.app > main {
+  flex: 1;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+/* Home keeps its balance and tabs in view; only the list under the tabs scrolls. */
+.screen.home {
+  min-height: 0;
+  overflow: hidden;
+  padding-bottom: 8px;
+}
+.tab-panel {
+  flex: 1;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+.more {
+  margin: 10px auto 4px;
 }
 .topbar {
   display: flex;
@@ -441,7 +473,6 @@ input[aria-invalid="true"] {
 .surface-tab {
   max-width: 560px;
   margin: 0 auto;
-  min-height: 100vh;
 }
 .surface-tab,
 .surface-sidepanel {
@@ -622,5 +653,28 @@ textarea {
 @media (prefers-reduced-motion: reduce) {
   .toast {
     animation: none;
+  }
+}
+
+/* Narrow frames: a side panel can be 320px wide. */
+.actions {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+.actions button {
+  min-width: 0;
+  padding-inline: 4px;
+}
+@media (max-width: 359px) {
+  .topbar {
+    padding-inline: 10px;
+    gap: 6px;
+  }
+  .topbar .brand-name {
+    display: none;
+  }
+  .topbar button.icon {
+    padding-inline: 10px;
   }
 }

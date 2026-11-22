@@ -309,6 +309,20 @@ export class WalletSession {
     if (this.unlocked?.id === id) this.lock();
   }
 
+  /**
+   * Delete every wallet from this device, for a user who has lost the password.
+   * Needs no password: it removes access, it grants none. Returns the deleted ids
+   * so the caller can delete their scanned data.
+   */
+  async resetAll(): Promise<string[]> {
+    const ids = (await this.records()).map((r) => r.id);
+    await this.storage.remove(WALLETS);
+    await this.storage.remove(ACTIVE);
+    await this.storage.remove(FAILURES);
+    this.lock();
+    return ids;
+  }
+
   async rename(id: string, name: string): Promise<void> {
     const clean = name.trim().slice(0, 40);
     if (!clean) throw new RangeError("enter a name");

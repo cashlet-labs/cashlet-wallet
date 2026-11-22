@@ -336,6 +336,15 @@ export class WalletService {
         await this.gate.forget(request.walletId);
         return { ok: true };
       }
+      case "RESET_ALL": {
+        this.lock();
+        for (const id of await session.resetAll()) {
+          await (await this.deps.openStore(id)).clear();
+          await this.deps.settings.remove(`backedUp:${id}`);
+          await this.gate.forget(id);
+        }
+        return { ok: true };
+      }
       case "RENAME_WALLET":
         await session.rename(request.walletId, request.name);
         return { ok: true };

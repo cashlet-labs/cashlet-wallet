@@ -24,6 +24,7 @@ type View =
   | "apps"
   | "support"
   | "settings"
+  | "wallets"
   | "transaction"
   | "welcome"
   | "create"
@@ -98,7 +99,14 @@ export function App() {
       />
     );
   } else if (!status.unlocked) {
-    body = <Unlock status={status} onUnlocked={go("home")} onRestore={() => setView("import")} />;
+    body = (
+      <Unlock
+        status={status}
+        onUnlocked={go("home")}
+        onRestore={() => setView("import")}
+        onReset={go("welcome")}
+      />
+    );
   } else if (view === "home" && (status.approvals > 0 || approvalWindow)) {
     body = <Approvals onDone={approvalsDone} />;
   } else if (view === "send") {
@@ -113,11 +121,12 @@ export function App() {
     body = <Apps onBack={go("home")} />;
   } else if (view === "transaction" && txid) {
     body = <Transaction txid={txid} network={status.network ?? "chipnet"} onBack={go("home")} />;
-  } else if (view === "settings") {
+  } else if (view === "settings" || view === "wallets") {
     body = (
       <Settings
         status={status}
         onBack={go("home")}
+        start={view === "wallets" ? "wallets" : "main"}
         onAddWallet={() => setView("welcome")}
         onChanged={() => void refresh()}
       />
@@ -133,6 +142,7 @@ export function App() {
         onIdentity={() => setView("identity")}
         onApps={() => setView("apps")}
         onBackup={() => setView("backup")}
+        onOlderPasswords={() => setView("wallets")}
         onTransaction={(id) => {
           setTxid(id);
           setView("transaction");
@@ -150,7 +160,7 @@ export function App() {
           <span className="mark" aria-hidden="true">
             C
           </span>
-          Cashlet
+          <span className="brand-name">Cashlet</span>
           {status?.unlocked && status.network && (
             <span className={`tag${status.network === "chipnet" ? " test" : ""}`}>
               {status.network === "chipnet" ? "Chipnet" : "Mainnet"}
@@ -207,7 +217,7 @@ export function App() {
       </header>
       <main>{body}</main>
       {status?.unlocked && status.activeId && !approvalWindow && (
-        <Received walletId={status.activeId} scanning={status.scan === "scanning"} />
+        <Received walletId={status.activeId} />
       )}
       <footer className="support-link">
         <button type="button" className="link" onClick={() => setView("support")}>

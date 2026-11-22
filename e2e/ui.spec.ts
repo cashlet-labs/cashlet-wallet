@@ -326,3 +326,31 @@ test("a wiz:// link shown as plain text, added after the page loads, is found to
   await expect(window1.getByTestId("approval-origin")).toHaveText("https://studio.example");
   await window1.getByRole("button", { name: "Reject" }).click();
 });
+
+test("a narrow side panel has no sideways scrolling, and only the list scrolls", async ({
+  popup,
+}) => {
+  await importVector(popup);
+  // This page is not the toolbar popup, so it fills its frame like the side panel does.
+  await popup.setViewportSize({ width: 320, height: 640 });
+  await expect(popup.getByRole("button", { name: "Send", exact: true })).toBeVisible();
+  const sizes = await popup.evaluate(() => ({
+    scroll: document.documentElement.scrollWidth,
+    client: document.documentElement.clientWidth,
+    pageHeight: document.documentElement.scrollHeight,
+    viewHeight: window.innerHeight,
+  }));
+  expect(sizes.scroll).toBeLessThanOrEqual(sizes.client);
+  expect(sizes.pageHeight).toBeLessThanOrEqual(sizes.viewHeight);
+});
+
+test("a user who lost the password can remove all wallets and start over", async ({ popup }) => {
+  await importVector(popup);
+  await popup.getByRole("button", { name: "Lock" }).click();
+  await popup.getByRole("button", { name: /Remove all wallets and start over/ }).click();
+  const remove = popup.getByRole("button", { name: "Remove all wallets" });
+  await expect(remove).toBeDisabled();
+  await popup.getByLabel(/Type "remove all" to confirm/).fill("remove all");
+  await remove.click();
+  await expect(popup.getByRole("button", { name: "Create a new wallet" })).toBeVisible();
+});

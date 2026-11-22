@@ -14,11 +14,14 @@ export function Settings({
   onBack,
   onAddWallet,
   onChanged,
+  start = "main",
 }: {
   status: Status;
   onBack: () => void;
   onAddWallet: () => void;
   onChanged: () => void;
+  /** The section to open first. */
+  start?: "main" | "wallets";
 }) {
   const [section, setSection] = useState<
     | "main"
@@ -30,7 +33,7 @@ export function Settings({
     | "sites"
     | "sign"
     | "verify"
-  >("main");
+  >(start);
   const back = () => setSection("main");
   if (section === "phrase") return <RevealPhrase onBack={back} />;
   if (section === "password") return <ChangePassword onBack={back} />;

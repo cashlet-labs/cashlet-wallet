@@ -145,6 +145,15 @@ describe("WalletSession", () => {
     expect(await session.status()).toMatchObject({ wallets: [], activeId: null, unlocked: false });
   });
 
+  it("removes every wallet when the user starts over, without a password", async () => {
+    const { session } = setup();
+    const one = await session.import(VECTOR, PASSWORD, "chipnet", "One");
+    const two = await session.create(PASSWORD, "mainnet", "Two");
+    session.lock();
+    expect((await session.resetAll()).sort()).toEqual([one.id, two.id].sort());
+    expect(await session.status()).toMatchObject({ wallets: [], activeId: null, unlocked: false });
+  });
+
   it("refuses short passwords", async () => {
     const { session } = setup();
     await expect(session.create("short", "chipnet")).rejects.toThrow("at least 8");

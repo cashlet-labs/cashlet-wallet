@@ -21,6 +21,7 @@ function when(time: number | null, height: number): string {
 }
 
 const short = shortId;
+const PAGE = 25;
 
 export function Home({
   status,
@@ -29,6 +30,7 @@ export function Home({
   onIdentity,
   onApps,
   onBackup,
+  onOlderPasswords,
   onTransaction,
 }: {
   status: Status;
@@ -37,11 +39,14 @@ export function Home({
   onIdentity: () => void;
   onApps: () => void;
   onBackup: () => void;
+  onOlderPasswords: () => void;
   onTransaction: (txid: string) => void;
 }) {
   const [balance, setBalance] = useState<Balance | null>(null);
   const [history, setHistory] = useState<History>([]);
   const [tab, setTab] = useState<"activity" | "tokens">("activity");
+  // Long histories are shown a page at a time, inside the scrolling list.
+  const [shown, setShown] = useState(PAGE);
   const [error, setError] = useState<unknown>(null);
   const quote = useRate();
   const active = status.wallets.find((w) => w.id === status.activeId);
@@ -65,12 +70,24 @@ export function Home({
   useEffect(() => poll(load, status.scan === "scanning" ? 2_000 : 8_000), [load, status.scan]);
 
   return (
-    <section className="screen">
+    <section className="screen home">
       {active && !active.backedUp && (
         <div className="notice warning row spread">
           <span>Your recovery phrase is not backed up yet.</span>
           <button type="button" className="icon" onClick={onBackup}>
             Back up
+          </button>
+        </div>
+      )}
+      {status.wallets.some((w) => w.needsPassword) && (
+        <div className="notice warning row spread">
+          <span>
+            {status.wallets.filter((w) => w.needsPassword).length === 1
+              ? "One wallet still uses an older password."
+              : "Some wallets still use an older password."}
+          </span>
+          <button type="button" className="icon" onClick={onOlderPasswords}>
+            Fix
           </button>
         </div>
       )}
@@ -111,7 +128,7 @@ export function Home({
             `Could not reach the network: ${status.scanError ?? "unknown error"}`}
         </div>
       </div>
-      <div className="row">
+      <div className="actions">
         <button type="button" className="primary grow" onClick={onSend}>
           Send
         </button>
@@ -144,64 +161,77 @@ export function Home({
           Tokens {balance && balance.tokens.length > 0 ? `(${balance.tokens.length})` : ""}
         </button>
       </div>
-      {tab === "activity" &&
-        (history.length === 0 ? (
-          <p className="muted small">No transactions yet.</p>
-        ) : (
-          <ul className="list" aria-label="Transactions">
-            {history.map((entry) => (
-              <li key={entry.txid}>
-                <TxRow
-                  txid={entry.txid}
-                  when={when(entry.time, entry.height)}
-                  onOpen={onTransaction}
-                />
-              </li>
-            ))}
-          </ul>
-        ))}
-      {tab === "tokens" &&
-        (!balance || balance.tokens.length === 0 ? (
-          <p className="muted small">
-            No CashTokens yet. Receive them on your token address (starting with z).
-          </p>
-        ) : (
-          <ul className="list" aria-label="Tokens">
-            {balance.tokens.map((token) => {
-              const meta = tokenMeta.get(token.category);
-              const types = nftSummary(token.nfts, meta);
-              return (
-                <li key={token.category}>
-                  <span className="token-row">
-                    <TokenIcon meta={meta} />
-                    <span className="token-names">
-                      <span className="token-name">{tokenName(token.category, meta)}</span>
-                      {meta?.name ? (
-                        <code className="small muted" title={token.category}>
-                          {short(token.category)}
-                        </code>
-                      ) : (
+      <div className="tab-panel" role="tabpanel">
+        {tab === "activity" &&
+          (history.length === 0 ? (
+            <p className="muted small">No transactions yet.</p>
+          ) : (
+            <>
+              <ul className="list" aria-label="Transactions">
+                {history.slice(0, shown).map((entry) => (
+                  <li key={entry.txid}>
+                    <TxRow
+                      txid={entry.txid}
+                      when={when(entry.time, entry.height)}
+                      onOpen={onTransaction}
+                    />
+                  </li>
+                ))}
+              </ul>
+              {history.length > shown && (
+                <button
+                  type="button"
+                  className="icon more"
+                  onClick={() => setShown((n) => n + PAGE)}
+                >
+                  Show {Math.min(PAGE, history.length - shown)} more
+                </button>
+              )}
+            </>
+          ))}
+        {tab === "tokens" &&
+          (!balance || balance.tokens.length === 0 ? (
+            <p className="muted small">
+              No CashTokens yet. Receive them on your token address (starting with z).
+            </p>
+          ) : (
+            <ul className="list" aria-label="Tokens">
+              {balance.tokens.map((token) => {
+                const meta = tokenMeta.get(token.category);
+                const types = nftSummary(token.nfts, meta);
+                return (
+                  <li key={token.category}>
+                    <span className="token-row">
+                      <TokenIcon meta={meta} />
+                      <span className="token-names">
+                        <span className="token-name">{tokenName(token.category, meta)}</span>
+                        {meta?.name ? (
+                          <code className="small muted" title={token.category}>
+                            {short(token.category)}
+                          </code>
+                        ) : (
+                          <span className="small muted">
+                            {meta?.state === "unknown" ? "No registry found" : "Looking up…"}
+                          </span>
+                        )}
+                      </span>
+                    </span>
+                    <span className="token-amount">
+                      {token.amount !== "0" && <span>{tokenAmountText(token.amount, meta)}</span>}
+                      {token.nfts.length > 0 && (
                         <span className="small muted">
-                          {meta?.state === "unknown" ? "No registry found" : "Looking up…"}
+                          {" "}
+                          {token.nfts.length} NFT{token.nfts.length === 1 ? "" : "s"}
+                          {types && ` (${types})`}
                         </span>
                       )}
                     </span>
-                  </span>
-                  <span className="token-amount">
-                    {token.amount !== "0" && <span>{tokenAmountText(token.amount, meta)}</span>}
-                    {token.nfts.length > 0 && (
-                      <span className="small muted">
-                        {" "}
-                        {token.nfts.length} NFT{token.nfts.length === 1 ? "" : "s"}
-                        {types && ` (${types})`}
-                      </span>
-                    )}
-                  </span>
-                </li>
-              );
-            })}
-          </ul>
-        ))}
+                  </li>
+                );
+              })}
+            </ul>
+          ))}
+      </div>
     </section>
   );
 }

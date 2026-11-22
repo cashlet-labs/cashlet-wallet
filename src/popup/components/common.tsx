@@ -129,13 +129,15 @@ export function Screen({
   title,
   back,
   children,
+  className,
 }: {
   title?: string;
   back?: () => void;
   children: ReactNode;
+  className?: string;
 }) {
   return (
-    <section className="screen">
+    <section className={className ? `screen ${className}` : "screen"}>
       {(title || back) && (
         <div className="row">
           {back && (

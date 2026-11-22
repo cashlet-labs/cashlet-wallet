@@ -6,10 +6,12 @@ export function Unlock({
   status,
   onUnlocked,
   onRestore,
+  onReset,
 }: {
   status: Status;
   onUnlocked: () => void;
   onRestore: () => void;
+  onReset: () => void;
 }) {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<unknown>(null);
@@ -65,10 +67,58 @@ export function Unlock({
         <button type="submit" className="primary wide" disabled={!password || busy || wait > 0}>
           Unlock
         </button>
+        <ResetAll onDone={onReset} />
         <button type="button" className="link" onClick={onRestore}>
           Forgot the password? Restore from the recovery phrase
         </button>
       </form>
     </Screen>
+  );
+}
+
+/** Start over: delete every wallet on this device, after the user types a confirmation. */
+function ResetAll({ onDone }: { onDone: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [typed, setTyped] = useState("");
+  const [error, setError] = useState<unknown>(null);
+  if (!open) {
+    return (
+      <button type="button" className="link" onClick={() => setOpen(true)}>
+        Lost the password? Remove all wallets and start over
+      </button>
+    );
+  }
+  return (
+    <div className="card stack">
+      <p className="notice warning">
+        This deletes every wallet from this device. You can restore each one later only with its
+        recovery phrase. Money in a wallet whose phrase you do not have is lost.
+      </p>
+      <label>
+        Type &quot;remove all&quot; to confirm
+        <input autoComplete="off" value={typed} onChange={(e) => setTyped(e.target.value)} />
+      </label>
+      <ErrorNotice error={error} />
+      <div className="row">
+        <button type="button" className="grow" onClick={() => setOpen(false)}>
+          Cancel
+        </button>
+        <button
+          type="button"
+          className="danger grow"
+          disabled={typed.trim().toLowerCase() !== "remove all"}
+          onClick={async () => {
+            try {
+              await call({ type: "RESET_ALL", confirm: "remove all" });
+              onDone();
+            } catch (e) {
+              setError(e);
+            }
+          }}
+        >
+          Remove all wallets
+        </button>
+      </div>
+    </div>
   );
 }
