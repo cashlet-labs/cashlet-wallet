@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { allServerUrls } from "../src/electrum/servers";
 import { WIZARD_RELAY } from "../src/background/wizard";
+import { BCMR_GATEWAY } from "../src/wallet/bcmr";
 import { allRelayUrls } from "../src/wallet/identity";
 
 const manifest = JSON.parse(readFileSync(new URL("../manifest.json", import.meta.url), "utf8")) as {
@@ -23,9 +24,11 @@ function directive(name: string): string[] {
 }
 
 describe("manifest.json", () => {
-  it("lets the wallet reach every configured Electrum server and Nostr relay, and nothing else", () => {
+  it("lets the wallet reach every configured Electrum server, Nostr relay and the one registry gateway, and nothing else", () => {
     const allowed = directive("connect-src").filter((source) => source !== "'self'");
-    expect(allowed.sort()).toEqual([...allServerUrls(), ...allRelayUrls(), WIZARD_RELAY].sort());
+    expect(allowed.sort()).toEqual(
+      [...allServerUrls(), ...allRelayUrls(), WIZARD_RELAY, BCMR_GATEWAY].sort(),
+    );
   });
 
   it("keeps a strict policy for extension pages", () => {

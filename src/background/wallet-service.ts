@@ -17,6 +17,7 @@ import {
 import type { WalletStore } from "../wallet/store";
 import { WrongPasswordError } from "../wallet/vault";
 import { SiteGate } from "./sites";
+import { TokenMetaService, type FetchLike } from "./token-meta";
 import { WizardConnections, type CreateWizardManager } from "./wizard";
 
 /** A network connection the service can scan and broadcast through (ElectrumPool in the extension). */
@@ -43,6 +44,8 @@ export interface ServiceDeps {
   onApprovals?: (waiting: number) => void;
   /** Creates the WizardConnect manager. Defaults to the real one, over the relay. */
   wizardManager?: CreateWizardManager;
+  /** Fetches token registries and icons. Defaults to the browser's fetch. */
+  fetch?: FetchLike;
 }
 
 const realRelays: RelayApi = {
@@ -95,8 +98,14 @@ export class WalletService {
   >();
 
   private readonly gate: SiteGate;
+  private readonly tokenMeta: TokenMetaService;
 
   constructor(private readonly deps: ServiceDeps) {
+    this.tokenMeta = new TokenMetaService(
+      deps.settings,
+      deps.fetch ?? ((url, init) => fetch(url, init)),
+      () => this.now(),
+    );
     this.gate = new SiteGate({
       settings: deps.settings,
       unlocked: () => {
@@ -232,6 +241,11 @@ export class WalletService {
           entries: entries.map(({ txid, height, time }) => ({ txid, height, time })),
         };
       }
+      case "GET_TOKEN_META":
+        return {
+          ok: true,
+          tokens: await this.tokenMeta.lookup(this.active().connection, request.categories),
+        };
       case "PREPARE_SEND":
         return this.prepareSend(request.recipients);
       case "CONFIRM_SEND":

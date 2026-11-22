@@ -34,6 +34,7 @@ export type Request =
   | { type: "GET_RECEIVE_ADDRESS"; tokenAware: boolean }
   | { type: "GET_BALANCE" }
   | { type: "GET_HISTORY" }
+  | { type: "GET_TOKEN_META"; categories: string[] }
   | { type: "PREPARE_SEND"; recipients: RecipientMessage[] }
   | { type: "CONFIRM_SEND"; planId: string }
   | { type: "REVEAL_MNEMONIC"; password: string }
@@ -65,6 +66,18 @@ export interface TokenBalance {
   category: string;
   amount: string;
   nfts: { capability: string; commitment: string }[];
+}
+
+/** What is known about one token category. Text is already cleaned; `icon` is a data: address. */
+export interface TokenMetaEntry {
+  category: string;
+  /** `pending` while it is being looked up, `unknown` when no usable registry was found. */
+  state: "known" | "pending" | "unknown";
+  name: string | null;
+  symbol: string | null;
+  decimals: number;
+  icon: string | null;
+  nftTypes: { commitment: string; name: string }[];
 }
 
 export interface PlannedOutputMessage {
@@ -109,6 +122,7 @@ export interface ResponseFor {
   GET_RECEIVE_ADDRESS: { ok: true; address: string; index: number };
   GET_BALANCE: { ok: true; confirmed: number; unconfirmed: number; tokens: TokenBalance[] };
   GET_HISTORY: { ok: true; entries: { txid: string; height: number; time: number | null }[] };
+  GET_TOKEN_META: { ok: true; tokens: TokenMetaEntry[] };
   PREPARE_SEND: {
     ok: true;
     planId: string;
@@ -294,6 +308,13 @@ export function parseRequest(value: unknown): Request | { error: string } {
       return hasKeys(v, ["type", "tokenAware"]) && typeof v.tokenAware === "boolean"
         ? { type: "GET_RECEIVE_ADDRESS", tokenAware: v.tokenAware }
         : bad;
+    case "GET_TOKEN_META": {
+      if (!hasKeys(v, ["type", "categories"]) || !Array.isArray(v.categories)) return bad;
+      const categories = v.categories as unknown[];
+      if (categories.length === 0 || categories.length > 100) return bad;
+      if (!categories.every((c) => typeof c === "string" && HEX32.test(c))) return bad;
+      return { type: "GET_TOKEN_META", categories: [...new Set(categories as string[])] };
+    }
     case "PREPARE_SEND": {
       if (!hasKeys(v, ["type", "recipients"]) || !Array.isArray(v.recipients)) return bad;
       if (v.recipients.length === 0 || v.recipients.length > 50) return bad;

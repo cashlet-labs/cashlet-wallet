@@ -114,3 +114,25 @@ describe("isExtensionSender", () => {
     expect(isExtensionSender({ id }, id, origin)).toBe(false);
   });
 });
+
+describe("GET_TOKEN_META", () => {
+  const category = "ab".repeat(32);
+
+  it("accepts a list of categories and drops repeats", () => {
+    expect(parseRequest({ type: "GET_TOKEN_META", categories: [category, category] })).toEqual({
+      type: "GET_TOKEN_META",
+      categories: [category],
+    });
+  });
+
+  it("refuses anything else", () => {
+    for (const categories of [[], ["zz"], [5], "ab", Array(101).fill(category)]) {
+      expect(parseRequest({ type: "GET_TOKEN_META", categories })).toEqual({
+        error: "malformed GET_TOKEN_META",
+      });
+    }
+    expect(parseRequest({ type: "GET_TOKEN_META", categories: [category], extra: 1 })).toEqual({
+      error: "malformed GET_TOKEN_META",
+    });
+  });
+});

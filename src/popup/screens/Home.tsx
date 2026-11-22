@@ -2,7 +2,9 @@ import { useCallback, useEffect, useState } from "react";
 import type { ResponseFor } from "../../shared/messages";
 import { call, type Status } from "../api";
 import { Bch, ErrorNotice } from "../components/common";
+import { TokenIcon } from "../components/TokenIcon";
 import { poll } from "../errors";
+import { nftSummary, shortId, tokenAmountText, tokenName, useTokenMeta } from "../token-meta";
 
 type Balance = Extract<ResponseFor["GET_BALANCE"], { ok: true }>;
 type History = Extract<ResponseFor["GET_HISTORY"], { ok: true }>["entries"];
@@ -16,7 +18,7 @@ function when(time: number | null, height: number): string {
   });
 }
 
-const short = (hex: string) => `${hex.slice(0, 8)}…${hex.slice(-6)}`;
+const short = shortId;
 
 export function Home({
   status,
@@ -38,6 +40,7 @@ export function Home({
   const [tab, setTab] = useState<"activity" | "tokens">("activity");
   const [error, setError] = useState<unknown>(null);
   const active = status.wallets.find((w) => w.id === status.activeId);
+  const tokenMeta = useTokenMeta(balance?.tokens.map((t) => t.category) ?? []);
 
   const load = useCallback(async () => {
     try {
@@ -145,20 +148,33 @@ export function Home({
           </p>
         ) : (
           <ul className="list" aria-label="Tokens">
-            {balance.tokens.map((token) => (
-              <li key={token.category}>
-                <code title={token.category}>{short(token.category)}</code>
-                <span>
-                  {token.amount !== "0" && <span>{token.amount}</span>}
-                  {token.nfts.length > 0 && (
-                    <span className="small muted">
-                      {" "}
-                      {token.nfts.length} NFT{token.nfts.length === 1 ? "" : "s"}
+            {balance.tokens.map((token) => {
+              const meta = tokenMeta.get(token.category);
+              const types = nftSummary(token.nfts, meta);
+              return (
+                <li key={token.category}>
+                  <span className="token-row">
+                    <TokenIcon meta={meta} />
+                    <span className="token-names">
+                      <span className="token-name">{tokenName(token.category, meta)}</span>
+                      <code className="small muted" title={token.category}>
+                        {short(token.category)}
+                      </code>
                     </span>
-                  )}
-                </span>
-              </li>
-            ))}
+                  </span>
+                  <span className="token-amount">
+                    {token.amount !== "0" && <span>{tokenAmountText(token.amount, meta)}</span>}
+                    {token.nfts.length > 0 && (
+                      <span className="small muted">
+                        {" "}
+                        {token.nfts.length} NFT{token.nfts.length === 1 ? "" : "s"}
+                        {types && ` (${types})`}
+                      </span>
+                    )}
+                  </span>
+                </li>
+              );
+            })}
           </ul>
         ))}
     </section>

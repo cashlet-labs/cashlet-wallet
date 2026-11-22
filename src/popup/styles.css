@@ -469,3 +469,34 @@ input[aria-invalid="true"] {
   display: grid;
   gap: 8px;
 }
+
+/* Token metadata */
+.token-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.token-icon {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+.token-icon-empty {
+  background: var(--line);
+}
+.token-names {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.token-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.token-amount {
+  text-align: right;
+}
