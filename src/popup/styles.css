@@ -577,3 +577,8 @@ input[aria-invalid="true"] {
 textarea {
   resize: vertical;
 }
+
+/* WizardConnect detection */
+.list [data-testid="app-origin"] {
+  overflow-wrap: anywhere;
+}

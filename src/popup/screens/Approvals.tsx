@@ -100,6 +100,17 @@ function Details({ approval, npub }: { approval: Approval; npub: string | null }
   }
   if (approval.type === "encrypt" || approval.type === "decrypt")
     return <CipherDetails approval={approval} />;
+  if (approval.type === "wizard") {
+    return (
+      <div className="card stack">
+        <span>This site wants to connect an app with WizardConnect.</span>
+        <span className="small muted">
+          The app will see all your addresses, balances and history. It cannot spend anything: every
+          transaction is shown here for you to approve.
+        </span>
+      </div>
+    );
+  }
   if (approval.type === "connect") {
     return (
       <div className="card stack">
@@ -247,7 +258,7 @@ export function Approvals({ onDone }: { onDone: () => void }) {
           disabled={busy}
           onClick={() => void decide(true)}
         >
-          {approval.type === "connect"
+          {approval.type === "connect" || approval.type === "wizard"
             ? "Connect"
             : approval.type === "login"
               ? "Log in"

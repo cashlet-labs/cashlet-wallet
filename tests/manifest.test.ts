@@ -46,11 +46,18 @@ describe("manifest.json", () => {
     expect(manifest.web_accessible_resources).toBeUndefined();
   });
 
-  it("injects the page API on https pages and local development pages only, top frame only", () => {
+  it("injects the page API and the WizardConnect link finder on https pages and local development pages only, top frame only", () => {
     const pages = ["https://*/*", "http://localhost/*", "http://127.0.0.1/*"];
     expect(manifest.content_scripts).toEqual([
       { matches: pages, js: ["src/content/inpage.ts"], run_at: "document_start", world: "MAIN" },
       { matches: pages, js: ["src/content/bridge.ts"], run_at: "document_start" },
+      {
+        matches: pages,
+        js: ["src/content/wizard-main.ts"],
+        run_at: "document_idle",
+        world: "MAIN",
+      },
+      { matches: pages, js: ["src/content/wizard-detect.ts"], run_at: "document_idle" },
     ]);
   });
 });
