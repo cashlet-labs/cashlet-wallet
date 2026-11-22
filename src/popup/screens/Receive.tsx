@@ -4,7 +4,7 @@ import { call } from "../api";
 import { CopyButton, ErrorNotice, Qr, Screen } from "../components/common";
 
 export function Receive({ onBack }: { onBack: () => void }) {
-  const [tokens, setTokens] = useState(false);
+  const [tokens, setTokens] = useState(true);
   const [address, setAddress] = useState<string | null>(null);
   const [amount, setAmount] = useState("");
   const [error, setError] = useState<unknown>(null);
@@ -30,11 +30,11 @@ export function Receive({ onBack }: { onBack: () => void }) {
   return (
     <Screen title="Receive" back={onBack}>
       <div className="tabs" role="tablist">
-        <button type="button" role="tab" aria-selected={!tokens} onClick={() => setTokens(false)}>
-          BCH
-        </button>
         <button type="button" role="tab" aria-selected={tokens} onClick={() => setTokens(true)}>
           BCH and tokens
+        </button>
+        <button type="button" role="tab" aria-selected={!tokens} onClick={() => setTokens(false)}>
+          Older wallets
         </button>
       </div>
       <ErrorNotice error={error} />
@@ -61,8 +61,8 @@ export function Receive({ onBack }: { onBack: () => void }) {
           </label>
           <p className="small muted">
             {tokens
-              ? "This address accepts BCH and CashTokens. Some older wallets cannot send to it."
-              : "A new address is shown after each payment, so payments are harder to link."}
+              ? "This address accepts BCH and CashTokens. If the sender's wallet refuses it, use the Older wallets tab."
+              : "This address accepts BCH only, from any wallet."}
           </p>
         </>
       )}

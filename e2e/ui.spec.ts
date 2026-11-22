@@ -101,14 +101,14 @@ test("restores from a pasted phrase, locks and unlocks", async ({ popup }) => {
   await expect(popup.getByRole("button", { name: "Send", exact: true })).toBeVisible();
 });
 
-test("receive shows the next address, and a token address on request", async ({ popup }) => {
+test("receive shows a token address by default, and a plain one on request", async ({ popup }) => {
   await importVector(popup);
   await popup.getByRole("button", { name: "Receive" }).click();
   const address = popup.getByTestId("receive-address");
-  await expect(address).toHaveText(/^bchtest:q/);
-  await expect(popup.getByRole("img", { name: /QR code for bchtest:/ })).toBeVisible();
-  await popup.getByRole("tab", { name: "BCH and tokens" }).click();
   await expect(address).toHaveText(/^bchtest:z/);
+  await expect(popup.getByRole("img", { name: /QR code for bchtest:/ })).toBeVisible();
+  await popup.getByRole("tab", { name: "Older wallets" }).click();
+  await expect(address).toHaveText(/^bchtest:q/);
   await popup.getByLabel("Amount to request (optional)").fill("0.1.2");
   await expect(popup.getByText(/at most 8 decimals/)).toBeVisible();
 });
