@@ -99,14 +99,7 @@ export function App() {
       />
     );
   } else if (!status.unlocked) {
-    body = (
-      <Unlock
-        status={status}
-        onUnlocked={go("home")}
-        onRestore={() => setView("import")}
-        onReset={go("welcome")}
-      />
-    );
+    body = <Unlock status={status} onUnlocked={go("home")} onReset={go("welcome")} />;
   } else if (view === "home" && (status.approvals > 0 || approvalWindow)) {
     body = <Approvals onDone={approvalsDone} />;
   } else if (view === "send") {

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { ResponseFor } from "../../shared/messages";
 import { call, type Status } from "../api";
 import { CopyButton, ErrorNotice, NewPassword, Screen } from "../components/common";
+import { Wipe } from "../components/Wipe";
 import { FIAT_CURRENCIES, type FiatChoice } from "../../wallet/rates";
 import { deleteContact, loadContacts, saveContact, type Contact } from "../contacts";
 import { FeeRate, PreferredServer } from "./NetworkSettings";
@@ -25,6 +26,7 @@ export function Settings({
 }) {
   const [section, setSection] = useState<
     | "main"
+    | "wipe"
     | "phrase"
     | "password"
     | "servers"
@@ -35,6 +37,16 @@ export function Settings({
     | "verify"
   >(start);
   const back = () => setSection("main");
+  if (section === "wipe")
+    return (
+      <Screen title="Wipe all wallets" back={back}>
+        <Wipe
+          intro="Remove every wallet and its data from this device, for example before giving the computer away."
+          onDone={onChanged}
+          onCancel={back}
+        />
+      </Screen>
+    );
   if (section === "phrase") return <RevealPhrase onBack={back} />;
   if (section === "password") return <ChangePassword onBack={back} />;
   if (section === "servers") return <Servers onBack={back} />;
@@ -78,6 +90,9 @@ export function Settings({
         <AutoLock minutes={status.autoLockMinutes} onSaved={onChanged} />
         <FeeRate />
         <FiatChoiceSetting />
+        <button type="button" className="wide danger" onClick={() => setSection("wipe")}>
+          Wipe all wallets
+        </button>
       </div>
     </Screen>
   );

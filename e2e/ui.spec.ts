@@ -245,7 +245,7 @@ test("a second wallet takes the Cashlet password, and Settings switches between 
   await importVector(popup);
   await expect(popup.getByText("Chipnet", { exact: true })).toBeVisible();
   await popup.getByRole("button", { name: "Settings" }).click();
-  await popup.getByRole("button", { name: "Wallets" }).click();
+  await popup.getByRole("button", { name: "Wallets", exact: true }).click();
   await popup.getByRole("button", { name: "Add another wallet" }).click();
   await popup.getByRole("button", { name: "Create a new wallet" }).click();
   await expect(popup.getByLabel("Repeat the password")).toHaveCount(0);
@@ -266,7 +266,7 @@ test("a second wallet takes the Cashlet password, and Settings switches between 
   await expect(popup.getByText("Mainnet", { exact: true })).toBeVisible();
 
   await popup.getByRole("button", { name: "Settings" }).click();
-  await popup.getByRole("button", { name: "Wallets" }).click();
+  await popup.getByRole("button", { name: "Wallets", exact: true }).click();
   await popup.getByRole("button", { name: "Switch" }).click();
   await expect(popup.getByText("Chipnet", { exact: true })).toBeVisible();
 });
@@ -344,13 +344,22 @@ test("a narrow side panel has no sideways scrolling, and only the list scrolls",
   expect(sizes.pageHeight).toBeLessThanOrEqual(sizes.viewHeight);
 });
 
-test("a user who lost the password can remove all wallets and start over", async ({ popup }) => {
+test("a forgotten password leads to wiping and restoring; Settings can wipe too", async ({
+  popup,
+}) => {
   await importVector(popup);
   await popup.getByRole("button", { name: "Lock" }).click();
-  await popup.getByRole("button", { name: /Remove all wallets and start over/ }).click();
-  const remove = popup.getByRole("button", { name: "Remove all wallets" });
-  await expect(remove).toBeDisabled();
-  await popup.getByLabel(/Type "remove all" to confirm/).fill("remove all");
-  await remove.click();
+  await popup.getByRole("button", { name: "Forgot the password?" }).click();
+  const wipe = popup.getByRole("button", { name: "Wipe all wallets" });
+  await expect(wipe).toBeDisabled();
+  await popup.getByLabel(/Type "wipe" to confirm/).fill("wipe");
+  await wipe.click();
+  await expect(popup.getByRole("button", { name: "Create a new wallet" })).toBeVisible();
+
+  await importVector(popup);
+  await popup.getByRole("button", { name: "Settings" }).click();
+  await popup.getByRole("button", { name: "Wipe all wallets" }).click();
+  await popup.getByLabel(/Type "wipe" to confirm/).fill("wipe");
+  await popup.getByRole("button", { name: "Wipe all wallets" }).click();
   await expect(popup.getByRole("button", { name: "Create a new wallet" })).toBeVisible();
 });

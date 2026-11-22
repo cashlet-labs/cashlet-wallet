@@ -49,7 +49,7 @@ export type Request =
   | { type: "REMOVE_WALLET"; walletId: string; password: string }
   | { type: "RENAME_WALLET"; walletId: string; name: string }
   | { type: "SWITCH_WALLET"; walletId: string }
-  | { type: "RESET_ALL"; confirm: "remove all" }
+  | { type: "RESET_ALL"; confirm: "wipe" }
   | { type: "ADOPT_WALLET"; walletId: string; oldPassword: string; password: string }
   | { type: "SET_AUTO_LOCK"; minutes: number }
   | { type: "SERVER_HEALTH" }
@@ -441,8 +441,8 @@ export function parseRequest(value: unknown): Request | { error: string } {
         ? { type: "RENAME_WALLET", walletId: v.walletId, name: v.name }
         : bad;
     case "RESET_ALL":
-      return hasKeys(v, ["type", "confirm"]) && v.confirm === "remove all"
-        ? { type: "RESET_ALL", confirm: "remove all" }
+      return hasKeys(v, ["type", "confirm"]) && v.confirm === "wipe"
+        ? { type: "RESET_ALL", confirm: "wipe" }
         : bad;
     case "SWITCH_WALLET":
       return hasKeys(v, ["type", "walletId"]) && text(v.walletId, 64)
