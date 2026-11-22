@@ -57,6 +57,15 @@
       fromElement(element, false);
     for (const element of root.querySelectorAll("input, textarea, code, pre"))
       fromElement(element, true);
+    // Links shown as plain text, such as a paragraph under a QR code.
+    const top = root instanceof Document ? root.documentElement : root;
+    if (top && (top.textContent ?? "").includes("wiz:")) {
+      const walker = document.createTreeWalker(top, NodeFilter.SHOW_TEXT);
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        const text = (node as Text).data;
+        if (text.includes("wiz:")) fromText(text);
+      }
+    }
     // Web components: attributes, text, and open shadow roots, nested ones too.
     for (const element of root.querySelectorAll("*")) {
       if (element.localName.includes("-")) fromElement(element, true);

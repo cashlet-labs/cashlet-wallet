@@ -299,3 +299,30 @@ test("a wiz:// link on a site asks the user, and Apps lists the connection with 
   await expect(popup.getByLabel("Connected apps")).toBeVisible();
   await expect(popup.getByTestId("app-origin")).toHaveText("From https://dapp.example");
 });
+
+test("a wiz:// link shown as plain text, added after the page loads, is found too", async ({
+  context,
+  popup,
+}) => {
+  await importVector(popup);
+  const { publicKey, secret } = generateKeyExchangeCredentials();
+  const { uri } = encodeKeyExchangeURI(publicKey, secret);
+  // Like a dApp that shows the link in a paragraph under its QR code once the user clicks Connect.
+  await context.route("https://studio.example/**", (route) =>
+    route.fulfill({
+      contentType: "text/html",
+      body: `<!doctype html><title>Studio</title><button id="c">Connect</button>
+        <script>document.getElementById("c").onclick = () => {
+          const p = document.createElement("p"); p.textContent = ${JSON.stringify(uri)};
+          document.body.append(p);
+        };</script>`,
+    }),
+  );
+  const site = await context.newPage();
+  await site.goto("https://studio.example/");
+  const approval = context.waitForEvent("page");
+  await site.getByRole("button", { name: "Connect" }).click();
+  const window1 = await approval;
+  await expect(window1.getByTestId("approval-origin")).toHaveText("https://studio.example");
+  await window1.getByRole("button", { name: "Reject" }).click();
+});
