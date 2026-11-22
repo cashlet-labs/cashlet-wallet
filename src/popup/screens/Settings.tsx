@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { ResponseFor } from "../../shared/messages";
 import { call, type Status } from "../api";
 import { CopyButton, ErrorNotice, NewPassword, Screen } from "../components/common";
+import { FIAT_CURRENCIES, type FiatChoice } from "../../wallet/rates";
 import { deleteContact, loadContacts, saveContact, type Contact } from "../contacts";
 
 type Health = Extract<ResponseFor["SERVER_HEALTH"], { ok: true }>;
@@ -54,6 +55,7 @@ export function Settings({
           Network servers
         </button>
         <AutoLock minutes={status.autoLockMinutes} onSaved={onChanged} />
+        <FiatChoiceSetting />
       </div>
     </Screen>
   );
@@ -140,6 +142,48 @@ function AutoLock({ minutes, onSaved }: { minutes: number; onSaved: () => void }
           </option>
         ))}
       </select>
+    </label>
+  );
+}
+
+function FiatChoiceSetting() {
+  const [choice, setChoice] = useState<string | null>(null);
+  const [error, setError] = useState<unknown>(null);
+  useEffect(() => {
+    let current = true;
+    call({ type: "GET_RATE" }).then(
+      (r) => current && setChoice(r.currency),
+      (e: unknown) => current && setError(e),
+    );
+    return () => {
+      current = false;
+    };
+  }, []);
+  return (
+    <label>
+      Show prices in
+      <select
+        value={choice ?? "USD"}
+        disabled={choice === null}
+        onChange={async (e) => {
+          const next = e.target.value as FiatChoice;
+          try {
+            await call({ type: "SET_FIAT", currency: next });
+            setChoice(next);
+            setError(null);
+          } catch (err) {
+            setError(err);
+          }
+        }}
+      >
+        {FIAT_CURRENCIES.map((c) => (
+          <option key={c} value={c}>
+            {c}
+          </option>
+        ))}
+        <option value="OFF">Off</option>
+      </select>
+      <ErrorNotice error={error} />
     </label>
   );
 }

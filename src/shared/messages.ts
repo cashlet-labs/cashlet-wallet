@@ -9,6 +9,7 @@
 import type { BchNetwork } from "@cashlet-labs/bnd";
 import type { ApprovalView } from "../background/sites";
 import type { WizardConnectionView } from "../background/wizard";
+import { isFiatChoice } from "../wallet/rates";
 
 export interface RecipientMessage {
   address: string;
@@ -57,7 +58,9 @@ export type Request =
   | { type: "SITE_REMOVE"; origin: string }
   | { type: "WIZARD_CONNECT"; uri: string }
   | { type: "WIZARD_LIST" }
-  | { type: "WIZARD_DISCONNECT"; id: string };
+  | { type: "WIZARD_DISCONNECT"; id: string }
+  | { type: "GET_RATE" }
+  | { type: "SET_FIAT"; currency: string };
 
 export type RequestType = Request["type"];
 
@@ -149,6 +152,16 @@ export interface ResponseFor {
   WIZARD_CONNECT: { ok: true; id: string };
   WIZARD_LIST: { ok: true; connections: WizardConnectionView[] };
   WIZARD_DISCONNECT: { ok: true };
+  GET_RATE: {
+    ok: true;
+    /** The chosen currency, or "OFF". */
+    currency: string;
+    /** The price of 1 BCH, or null when prices are off, unavailable or the wallet is on chipnet. */
+    rate: number | null;
+    fetchedAt: number | null;
+    testCoins: boolean;
+  };
+  SET_FIAT: { ok: true };
   SERVER_HEALTH: {
     ok: true;
     current: string | null;
@@ -250,6 +263,7 @@ export function parseRequest(value: unknown): Request | { error: string } {
     case "APPROVALS_LIST":
     case "SITES_LIST":
     case "WIZARD_LIST":
+    case "GET_RATE":
       return hasKeys(v, ["type"]) ? ({ type: v.type } as Request) : bad;
     case "VERIFY_BINDING":
       if (!hasKeys(v, ["type", "event"])) return bad;
@@ -383,6 +397,10 @@ export function parseRequest(value: unknown): Request | { error: string } {
     case "WIZARD_DISCONNECT":
       return hasKeys(v, ["type", "id"]) && text(v.id, 100)
         ? { type: "WIZARD_DISCONNECT", id: v.id }
+        : bad;
+    case "SET_FIAT":
+      return hasKeys(v, ["type", "currency"]) && isFiatChoice(v.currency)
+        ? { type: "SET_FIAT", currency: v.currency }
         : bad;
     case "SITE_REMOVE":
       return hasKeys(v, ["type", "origin"]) && text(v.origin, 300)

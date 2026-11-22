@@ -469,3 +469,11 @@ input[aria-invalid="true"] {
   display: grid;
   gap: 8px;
 }
+
+/* Fiat prices */
+.fiat {
+  font-size: 0.85rem;
+}
+.fiat-line {
+  min-height: 1.2em;
+}

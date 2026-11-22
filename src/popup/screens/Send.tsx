@@ -4,6 +4,7 @@ import { parsePaymentRequest } from "../../wallet/address";
 import { formatBch, parseBch } from "../../wallet/amount";
 import { call } from "../api";
 import { Bch, CopyButton, ErrorNotice, Screen } from "../components/common";
+import { Fiat, useRate } from "../fiat";
 import { loadContacts, type Contact } from "../contacts";
 
 type Plan = Extract<ResponseFor["PREPARE_SEND"], { ok: true }>;
@@ -25,6 +26,7 @@ export function Send({ network, onBack }: { network: Network; onBack: () => void
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
   const [expired, setExpired] = useState(false);
+  const quote = useRate();
 
   // A prepared send can be confirmed for two minutes; after that it must be reviewed again.
   useEffect(() => {
@@ -56,6 +58,13 @@ export function Send({ network, onBack }: { network: Network; onBack: () => void
   };
 
   const token = balance?.tokens.find((t) => t.category === asset) ?? null;
+
+  let typedSats: number | null = null;
+  try {
+    typedSats = amount.trim() === "" ? null : parseBch(amount);
+  } catch {
+    // The fiat value shows once the amount is valid.
+  }
 
   const review = async () => {
     setBusy(true);
@@ -139,18 +148,21 @@ export function Send({ network, onBack }: { network: Network; onBack: () => void
                       <span className="muted">(+ {o.value} sats)</span>
                     </>
                   ) : (
-                    <Bch sats={o.value} />
+                    <>
+                      <Bch sats={o.value} /> <Fiat quote={quote} sats={o.value} />
+                    </>
                   )}
                 </dd>
               </div>
             ))}
           <dt>Network fee</dt>
           <dd>
-            {plan.fee} sats <span className="muted">({plan.size} bytes)</span>
+            {plan.fee} sats <span className="muted">({plan.size} bytes)</span>{" "}
+            <Fiat quote={quote} sats={plan.fee} />
           </dd>
           <dt>Total leaving the wallet</dt>
           <dd data-testid="outgoing">
-            <Bch sats={plan.outgoing} />
+            <Bch sats={plan.outgoing} /> <Fiat quote={quote} sats={plan.outgoing} />
           </dd>
           {plan.outputs.some((o) => o.change) && (
             <>
@@ -244,6 +256,7 @@ export function Send({ network, onBack }: { network: Network; onBack: () => void
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
           />
+          <Fiat quote={quote} sats={typedSats} />
           {balance && (
             <span className="small muted">
               Available: <Bch sats={balance.confirmed + balance.unconfirmed} />
