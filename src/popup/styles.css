@@ -454,3 +454,11 @@ input[aria-invalid="true"] {
 .support-link .link {
   font-size: 0.8rem;
 }
+@media (max-width: 419px) {
+  .topbar .account-name {
+    display: none;
+  }
+  .topbar .row {
+    gap: 6px;
+  }
+}

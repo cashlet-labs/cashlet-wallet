@@ -171,7 +171,7 @@ export function App() {
         </span>
         {status?.unlocked && (
           <span className="row">
-            {active && <span className="small muted">{active.name}</span>}
+            {active && <span className="small muted account-name">{active.name}</span>}
             <button
               type="button"
               className="icon"
