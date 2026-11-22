@@ -40,6 +40,8 @@ export type Request =
   | { type: "CHANGE_PASSWORD"; oldPassword: string; newPassword: string }
   | { type: "REMOVE_WALLET"; walletId: string; password: string }
   | { type: "RENAME_WALLET"; walletId: string; name: string }
+  | { type: "SWITCH_WALLET"; walletId: string }
+  | { type: "ADOPT_WALLET"; walletId: string; oldPassword: string; password: string }
   | { type: "SET_AUTO_LOCK"; minutes: number }
   | { type: "SERVER_HEALTH" }
   | { type: "CONFIRM_BACKUP"; walletId: string }
@@ -83,7 +85,13 @@ export interface ResponseFor {
     | { ok: false; reason: string };
   STATUS: {
     ok: true;
-    wallets: { id: string; name: string; network: BchNetwork; backedUp: boolean }[];
+    wallets: {
+      id: string;
+      name: string;
+      network: BchNetwork;
+      backedUp: boolean;
+      needsPassword: boolean;
+    }[];
     activeId: string | null;
     unlocked: boolean;
     retryAfter: number;
@@ -115,6 +123,8 @@ export interface ResponseFor {
   CHANGE_PASSWORD: { ok: true };
   REMOVE_WALLET: { ok: true };
   RENAME_WALLET: { ok: true };
+  SWITCH_WALLET: { ok: true };
+  ADOPT_WALLET: { ok: true };
   SET_AUTO_LOCK: { ok: true };
   CONFIRM_BACKUP: { ok: true };
   IDENTITY_STATUS: {
@@ -314,6 +324,22 @@ export function parseRequest(value: unknown): Request | { error: string } {
     case "RENAME_WALLET":
       return hasKeys(v, ["type", "walletId", "name"]) && text(v.walletId, 64) && text(v.name, 40)
         ? { type: "RENAME_WALLET", walletId: v.walletId, name: v.name }
+        : bad;
+    case "SWITCH_WALLET":
+      return hasKeys(v, ["type", "walletId"]) && text(v.walletId, 64)
+        ? { type: "SWITCH_WALLET", walletId: v.walletId }
+        : bad;
+    case "ADOPT_WALLET":
+      return hasKeys(v, ["type", "walletId", "oldPassword", "password"]) &&
+        text(v.walletId, 64) &&
+        text(v.oldPassword, 1024) &&
+        text(v.password, 1024)
+        ? {
+            type: "ADOPT_WALLET",
+            walletId: v.walletId,
+            oldPassword: v.oldPassword,
+            password: v.password,
+          }
         : bad;
     case "CONFIRM_BACKUP":
       return hasKeys(v, ["type", "walletId"]) && text(v.walletId, 64)

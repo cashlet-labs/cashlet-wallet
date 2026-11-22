@@ -4,11 +4,13 @@ A self-custodial Bitcoin Cash wallet for the browser, with CashTokens, Nostr
 signing and BND identity: bind your wallet to your Nostr key, get paid by npub
 or did:bnd, and log in to sites with your keys.
 
-This is the first release (v0.1.0). It runs on **chipnet**, the Bitcoin Cash
-test network, by default. Use test coins only.
+New wallets use mainnet. To try Cashlet with free test coins, open
+**Developer options** when you create or restore a wallet and tick
+**Use chipnet, the test network**.
 
 <p>
   <img src="docs/screenshot-home.png" width="190" alt="Home">
+  <img src="docs/screenshot-receive.png" width="190" alt="Receive: a token-aware address by default">
   <img src="docs/screenshot-identity.png" width="190" alt="Identity">
   <img src="docs/screenshot-send.png" width="190" alt="Send to an address, npub or did:bnd">
   <img src="docs/screenshot-approval.png" width="190" alt="A site asks for the Nostr key">
@@ -17,7 +19,7 @@ test network, by default. Use test coins only.
 
 ## Install
 
-1. Download `cashlet-v0.1.0.zip` from the
+1. Download the latest `cashlet-v….zip` from the
    [releases page](https://github.com/cashlet-labs/cashlet-wallet/releases) and
    unzip it.
 2. Open `chrome://extensions`, turn on **Developer mode**, choose
@@ -27,7 +29,8 @@ test network, by default. Use test coins only.
 
 ## Try it in five minutes
 
-1. Create a wallet, write down the twelve words and set a password.
+1. Create a wallet. Under **Developer options**, tick **Use chipnet**, then
+   set a password and write down the twelve words.
 2. Open **Receive**, copy the `bchtest:` address and get test coins from the
    [chipnet faucet](https://tbch.googol.cash/).
 3. Open **Identity** and publish it. This binds the wallet's address to its
@@ -42,6 +45,8 @@ test network, by default. Use test coins only.
 
 ## Security and privacy
 
+- One password unlocks every wallet in Cashlet. Switch wallets under
+  **Settings → Wallets**.
 - The recovery phrase is encrypted with a key derived from your password
   (PBKDF2-SHA-256 and AES-256-GCM) and
   never stored in the clear. The wallet locks itself after a while.

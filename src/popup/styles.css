@@ -462,3 +462,10 @@ input[aria-invalid="true"] {
     gap: 6px;
   }
 }
+.developer summary {
+  cursor: pointer;
+}
+.developer[open] {
+  display: grid;
+  gap: 8px;
+}

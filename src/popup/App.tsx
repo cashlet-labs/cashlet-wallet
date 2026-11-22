@@ -72,6 +72,7 @@ export function App() {
   } else if (view === "create") {
     body = (
       <CreateWallet
+        unlocked={status.unlocked}
         onDone={go("home")}
         onBack={go(status.wallets.length ? "settings" : "welcome")}
       />
@@ -79,6 +80,7 @@ export function App() {
   } else if (view === "import") {
     body = (
       <ImportWallet
+        unlocked={status.unlocked}
         onDone={go("home")}
         onBack={go(status.wallets.length && status.unlocked ? "settings" : "welcome")}
       />

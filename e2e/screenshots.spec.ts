@@ -5,6 +5,12 @@ import { expect, test, VECTOR } from "./fixtures";
 
 test.skip(!process.env.SCREENSHOTS, "set SCREENSHOTS=1 to take the README screenshots");
 
+// New wallets are on mainnet; chipnet is one extra step, under Developer options.
+async function useChipnet(page: Page) {
+  await page.getByText("Developer options").click();
+  await page.getByLabel("Use chipnet, the test network").check();
+}
+
 const PASSWORD = "screenshot password";
 
 async function restore(page: Page) {
@@ -18,6 +24,7 @@ async function restore(page: Page) {
       new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }),
     );
   }, VECTOR);
+  await useChipnet(page);
   await page.getByLabel("Password", { exact: true }).fill(PASSWORD);
   await page.getByLabel("Repeat the password").fill(PASSWORD);
   await page.getByRole("button", { name: "Restore wallet" }).click();

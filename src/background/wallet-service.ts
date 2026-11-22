@@ -252,6 +252,16 @@ export class WalletService {
       case "RENAME_WALLET":
         await session.rename(request.walletId, request.name);
         return { ok: true };
+      case "SWITCH_WALLET":
+        await session.switchTo(request.walletId);
+        this.plans.clear();
+        await this.start();
+        return { ok: true };
+      case "ADOPT_WALLET":
+        await session.adopt(request.walletId, request.oldPassword, request.password);
+        this.plans.clear();
+        await this.start();
+        return { ok: true };
       case "CONFIRM_BACKUP":
         if (!(await session.status()).wallets.some((wallet) => wallet.id === request.walletId)) {
           throw new Error("no such wallet");

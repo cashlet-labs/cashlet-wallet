@@ -70,19 +70,24 @@ export function NetworkChoice({
   value: "mainnet" | "chipnet";
   onChange: (n: "mainnet" | "chipnet") => void;
 }) {
+  // Wallets hold real BCH. The test network is for developers, one extra step away.
   return (
-    <label>
-      Network
-      <select value={value} onChange={(e) => onChange(e.target.value as "mainnet" | "chipnet")}>
-        <option value="chipnet">Chipnet (test coins, no real value)</option>
-        <option value="mainnet">Mainnet (real BCH)</option>
-      </select>
-      {value === "mainnet" && (
+    <details className="developer" open={value === "chipnet"}>
+      <summary className="small muted">Developer options</summary>
+      <label className="row">
+        <input
+          type="checkbox"
+          checked={value === "chipnet"}
+          onChange={(e) => onChange(e.target.checked ? "chipnet" : "mainnet")}
+        />
+        Use chipnet, the test network
+      </label>
+      {value === "chipnet" && (
         <span className="notice warning">
-          This wallet is still in development. Do not keep real funds in it yet.
+          Chipnet coins have no value. This wallet cannot receive real BCH.
         </span>
       )}
-    </label>
+    </details>
   );
 }
 

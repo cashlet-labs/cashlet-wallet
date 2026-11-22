@@ -84,16 +84,57 @@ describe("WalletSession", () => {
     await session.unlock("new password 1");
   });
 
-  it("keeps several wallets and switches between them", async () => {
+  it("one password opens every wallet, and switching needs no password", async () => {
     const { session } = setup();
-    const first = await session.import(VECTOR, PASSWORD, "chipnet", "One");
-    const second = await session.create("another password", "chipnet", "Two");
+    const first = await session.import(VECTOR, PASSWORD, "mainnet", "One");
+    // While unlocked, a new wallet takes the Cashlet password, not a new one.
+    await expect(session.create("another password", "chipnet", "Two")).rejects.toBeInstanceOf(
+      WrongPasswordError,
+    );
+    const second = await session.create(PASSWORD, "chipnet", "Two");
     expect((await session.status()).activeId).toBe(second.id);
     session.lock();
-    await session.unlock(PASSWORD, first.id);
-    expect((await session.status()).activeId).toBe(first.id);
+    await session.unlock(PASSWORD);
+    expect((await session.status()).activeId).toBe(second.id);
+    await session.switchTo(first.id);
+    expect(session.current()).toMatchObject({ id: first.id, network: "mainnet" });
+    session.lock();
+    await session.unlock(PASSWORD);
+    expect(session.current().id).toBe(first.id);
     await session.rename(first.id, "  Daily  ");
     expect((await session.status()).wallets.map((w) => w.name)).toEqual(["Daily", "Two"]);
+  });
+
+  it("moves a wallet with an older password over to the Cashlet password", async () => {
+    const { session } = setup();
+    const old = await session.import(VECTOR, "older password", "chipnet", "Old");
+    session.lock();
+    // Forgot the password: restoring another wallet sets a new Cashlet password.
+    const fresh = await session.create(PASSWORD, "mainnet", "New");
+    let wallets = (await session.status()).wallets;
+    expect(wallets.find((w) => w.id === old.id)?.needsPassword).toBe(true);
+    await expect(session.switchTo(old.id)).rejects.toThrow("old password");
+    await expect(session.adopt(old.id, "older password", "wrong password")).rejects.toBeInstanceOf(
+      WrongPasswordError,
+    );
+    await session.adopt(old.id, "older password", PASSWORD);
+    expect(session.current().id).toBe(old.id);
+    session.lock();
+    await session.unlock(PASSWORD);
+    wallets = (await session.status()).wallets;
+    expect(wallets.every((w) => !w.needsPassword)).toBe(true);
+    await session.switchTo(fresh.id);
+  });
+
+  it("changing the password re-seals every wallet", async () => {
+    const { session } = setup();
+    await session.import(VECTOR, PASSWORD, "chipnet", "One");
+    await session.create(PASSWORD, "mainnet", "Two");
+    await session.changePassword(PASSWORD, "brand new password");
+    session.lock();
+    await expect(session.unlock(PASSWORD)).rejects.toBeInstanceOf(WrongPasswordError);
+    await session.unlock("brand new password");
+    expect((await session.status()).wallets.every((w) => !w.needsPassword)).toBe(true);
   });
 
   it("removes a wallet only with its password", async () => {

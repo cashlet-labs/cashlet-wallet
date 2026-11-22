@@ -364,9 +364,18 @@ function Wallets({
   onAddWallet: () => void;
   onChanged: () => void;
 }) {
-  const [removing, setRemoving] = useState<string | null>(null);
+  const [form, setForm] = useState<{ kind: "remove" | "adopt"; id: string } | null>(null);
   const [password, setPassword] = useState("");
+  const [oldPassword, setOldPassword] = useState("");
   const [error, setError] = useState<unknown>(null);
+  const [busy, setBusy] = useState(false);
+  const show = (kind: "remove" | "adopt", id: string) => {
+    setForm({ kind, id });
+    setPassword("");
+    setOldPassword("");
+    setError(null);
+  };
+  const target = status.wallets.find((w) => w.id === form?.id);
   return (
     <Screen title="Wallets" back={onBack}>
       <ul className="list">
@@ -376,44 +385,103 @@ function Wallets({
               <strong>
                 {w.name} {w.id === status.activeId && <span className="tag">Open</span>}
               </strong>
-              <span className="small muted">{w.network === "mainnet" ? "Mainnet" : "Chipnet"}</span>
+              <span className="small muted">
+                {w.network === "mainnet" ? "Mainnet" : "Chipnet"}
+                {w.needsPassword && " · uses an older password"}
+              </span>
             </span>
-            <button type="button" className="icon danger" onClick={() => setRemoving(w.id)}>
-              Remove
-            </button>
+            <span className="row">
+              {w.id !== status.activeId && (
+                <button
+                  type="button"
+                  className="icon"
+                  disabled={busy}
+                  onClick={async () => {
+                    if (w.needsPassword) return show("adopt", w.id);
+                    setBusy(true);
+                    try {
+                      await call({ type: "SWITCH_WALLET", walletId: w.id });
+                      onChanged();
+                      onBack();
+                    } catch (err) {
+                      setError(err);
+                    } finally {
+                      setBusy(false);
+                    }
+                  }}
+                >
+                  Switch
+                </button>
+              )}
+              <button type="button" className="icon danger" onClick={() => show("remove", w.id)}>
+                Remove
+              </button>
+            </span>
           </li>
         ))}
       </ul>
-      {removing && (
+      {!form && <ErrorNotice error={error} />}
+      {form && target && (
         <form
           className="card stack"
           onSubmit={async (e) => {
             e.preventDefault();
+            setBusy(true);
+            setError(null);
             try {
-              await call({ type: "REMOVE_WALLET", walletId: removing, password });
-              setRemoving(null);
-              setPassword("");
+              if (form.kind === "remove") {
+                await call({ type: "REMOVE_WALLET", walletId: form.id, password });
+              } else {
+                await call({ type: "ADOPT_WALLET", walletId: form.id, oldPassword, password });
+              }
+              setForm(null);
               onChanged();
+              if (form.kind === "adopt") onBack();
             } catch (err) {
               setError(err);
+            } finally {
+              setBusy(false);
             }
           }}
         >
-          <p className="notice warning">
-            Removing a wallet deletes it from this device. Without its recovery phrase the money in
-            it is lost.
-          </p>
+          {form.kind === "remove" ? (
+            <p className="notice warning">
+              Removing {target.name} deletes it from this device. Without its recovery phrase the
+              money in it is lost.
+            </p>
+          ) : (
+            <>
+              <p className="small muted">
+                {target.name} was added with another password. Enter it once and the wallet moves
+                over to the Cashlet password.
+              </p>
+              <label>
+                {target.name}&apos;s old password
+                <input
+                  type="password"
+                  value={oldPassword}
+                  onChange={(e) => setOldPassword(e.target.value)}
+                />
+              </label>
+            </>
+          )}
           <label>
-            That wallet's password
+            {form.kind === "remove" && target.needsPassword
+              ? `${target.name}'s password`
+              : "Cashlet password"}
             <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
           </label>
           <ErrorNotice error={error} />
           <div className="row">
-            <button type="button" className="grow" onClick={() => setRemoving(null)}>
+            <button type="button" className="grow" onClick={() => setForm(null)}>
               Cancel
             </button>
-            <button type="submit" className="danger grow" disabled={!password}>
-              Remove
+            <button
+              type="submit"
+              className={form.kind === "remove" ? "danger grow" : "primary grow"}
+              disabled={!password || (form.kind === "adopt" && !oldPassword) || busy}
+            >
+              {form.kind === "remove" ? "Remove" : "Switch"}
             </button>
           </div>
         </form>

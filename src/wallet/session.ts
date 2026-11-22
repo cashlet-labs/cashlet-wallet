@@ -30,6 +30,11 @@ export interface WalletSummary {
   id: string;
   name: string;
   network: BchNetwork;
+  /**
+   * While unlocked: the Cashlet password did not open this wallet, because it
+   * was added with another password. Entering that password once moves it over.
+   */
+  needsPassword: boolean;
 }
 
 export interface SessionStatus {
@@ -82,7 +87,11 @@ function newWalletId(): string {
  * the phrase again (revealing it, changing the password) asks for the password.
  */
 export class WalletSession {
-  private unlocked: { id: string; wallet: HdWallet; network: BchNetwork } | null = null;
+  /** Every wallet the Cashlet password opened, and which one is in use. */
+  private unlocked: {
+    id: string;
+    open: Map<string, { wallet: HdWallet; network: BchNetwork }>;
+  } | null = null;
 
   constructor(
     private readonly storage: KeyValueStore,
@@ -111,7 +120,12 @@ export class WalletSession {
   async status(): Promise<SessionStatus> {
     const failures = (await this.storage.get<Failures>(FAILURES)) ?? { count: 0, until: 0 };
     return {
-      wallets: (await this.records()).map(({ id, name, network }) => ({ id, name, network })),
+      wallets: (await this.records()).map(({ id, name, network }) => ({
+        id,
+        name,
+        network,
+        needsPassword: this.unlocked !== null && !this.unlocked.open.has(id),
+      })),
       activeId: (await this.storage.get<string>(ACTIVE)) ?? null,
       unlocked: this.unlocked !== null,
       retryAfter: Math.max(0, Math.ceil((failures.until - this.now()) / 1000)),
@@ -120,8 +134,9 @@ export class WalletSession {
 
   /** The unlocked wallet. Throws LockedError when locked. */
   current(): { id: string; wallet: HdWallet; network: BchNetwork } {
-    if (!this.unlocked) throw new LockedError();
-    return this.unlocked;
+    const open = this.unlocked?.open.get(this.unlocked.id);
+    if (!this.unlocked || !open) throw new LockedError();
+    return { id: this.unlocked.id, ...open };
   }
 
   /**
@@ -158,6 +173,9 @@ export class WalletSession {
     checkPassword(password);
     const cleanName = name.trim().slice(0, 40) || "Wallet";
     const records = await this.records();
+    // One password for every wallet: while unlocked, a new wallet takes the Cashlet password.
+    // While locked (the password was forgotten), the new password becomes the Cashlet password.
+    if (this.unlocked) await this.openVault(await this.record(this.unlocked.id), password);
     const id = newWalletId();
     const vault = await seal(JSON.stringify({ mnemonic }), password, this.iterations);
     await this.storage.set(WALLETS, [
@@ -165,37 +183,84 @@ export class WalletSession {
       { id, name: cleanName, network, createdAt: this.now(), vault },
     ]);
     await this.storage.set(ACTIVE, id);
-    this.unlocked = { id, wallet: HdWallet.fromMnemonic(mnemonic), network };
+    const open = this.unlocked?.open ?? (await this.openAll(records, password));
+    open.set(id, { wallet: HdWallet.fromMnemonic(mnemonic), network });
+    this.unlocked = { id, open };
     return id;
   }
 
-  /** Unlock the active wallet (or `id`). Wrong passwords are throttled. */
+  /**
+   * Unlock with the Cashlet password, which opens every wallet sealed with it.
+   * The last wallet in use opens again (or `id`); if the password does not open
+   * that one, the first wallet it does open is used. Wrong passwords are throttled.
+   */
   async unlock(password: string, id?: string): Promise<void> {
     const failures = (await this.storage.get<Failures>(FAILURES)) ?? { count: 0, until: 0 };
     if (failures.until > this.now())
       throw new ThrottledError(Math.ceil((failures.until - this.now()) / 1000));
-    const walletId = id ?? (await this.storage.get<string>(ACTIVE));
-    if (!walletId) throw new Error("there is no wallet yet");
-    const record = await this.record(walletId);
-    let mnemonic: string;
-    try {
-      mnemonic = await this.openVault(record, password);
-    } catch (error) {
-      if (error instanceof WrongPasswordError) {
-        const count = failures.count + 1;
-        const wait =
-          count < FREE_ATTEMPTS ? 0 : Math.min(MAX_WAIT_SECONDS, 2 ** (count - FREE_ATTEMPTS));
-        await this.storage.set(FAILURES, { count, until: this.now() + wait * 1000 });
-      }
-      throw error;
+    const records = await this.records();
+    if (records.length === 0) throw new Error("there is no wallet yet");
+    const open = await this.openAll(records, password);
+    if (open.size === 0) {
+      const count = failures.count + 1;
+      const wait =
+        count < FREE_ATTEMPTS ? 0 : Math.min(MAX_WAIT_SECONDS, 2 ** (count - FREE_ATTEMPTS));
+      await this.storage.set(FAILURES, { count, until: this.now() + wait * 1000 });
+      throw new WrongPasswordError();
     }
     await this.storage.remove(FAILURES);
-    await this.storage.set(ACTIVE, record.id);
-    this.unlocked = {
-      id: record.id,
+    const wanted = id ?? (await this.storage.get<string>(ACTIVE));
+    const active = wanted && open.has(wanted) ? wanted : [...open.keys()][0]!;
+    await this.storage.set(ACTIVE, active);
+    this.unlocked = { id: active, open };
+  }
+
+  /** Use another wallet that the Cashlet password opened. */
+  async switchTo(id: string): Promise<void> {
+    if (!this.unlocked) throw new LockedError();
+    await this.record(id);
+    if (!this.unlocked.open.has(id)) {
+      throw new Error("enter this wallet's old password to use it with the Cashlet password");
+    }
+    await this.storage.set(ACTIVE, id);
+    this.unlocked = { ...this.unlocked, id };
+  }
+
+  /**
+   * Move a wallet that was sealed with another password over to the Cashlet
+   * password, and switch to it. Both passwords are needed: the session never
+   * keeps the Cashlet password.
+   */
+  async adopt(id: string, oldPassword: string, password: string): Promise<void> {
+    if (!this.unlocked) throw new LockedError();
+    await this.openVault(await this.record(this.unlocked.id), password);
+    const record = await this.record(id);
+    const mnemonic = await this.openVault(record, oldPassword);
+    await this.replaceVault(
+      id,
+      await seal(JSON.stringify({ mnemonic }), password, this.iterations),
+    );
+    this.unlocked.open.set(id, {
       wallet: HdWallet.fromMnemonic(mnemonic),
       network: record.network,
-    };
+    });
+    await this.switchTo(id);
+  }
+
+  private async openAll(
+    records: WalletRecord[],
+    password: string,
+  ): Promise<Map<string, { wallet: HdWallet; network: BchNetwork }>> {
+    const open = new Map<string, { wallet: HdWallet; network: BchNetwork }>();
+    for (const record of records) {
+      try {
+        const mnemonic = await this.openVault(record, password);
+        open.set(record.id, { wallet: HdWallet.fromMnemonic(mnemonic), network: record.network });
+      } catch (error) {
+        if (!(error instanceof WrongPasswordError)) throw error;
+      }
+    }
+    return open;
   }
 
   lock(): void {
@@ -208,18 +273,29 @@ export class WalletSession {
     return this.openVault(await this.record(id), password);
   }
 
+  /** Change the Cashlet password: every wallet it opens is sealed again with the new one. */
   async changePassword(oldPassword: string, newPassword: string): Promise<void> {
     checkPassword(newPassword);
     const { id } = this.current();
-    const record = await this.record(id);
-    const mnemonic = await this.openVault(record, oldPassword);
-    await this.replaceVault(
-      id,
-      await seal(JSON.stringify({ mnemonic }), newPassword, this.iterations),
-    );
+    await this.openVault(await this.record(id), oldPassword);
+    const records = await this.records();
+    const updated: WalletRecord[] = [];
+    for (const record of records) {
+      try {
+        const mnemonic = await this.openVault(record, oldPassword);
+        updated.push({
+          ...record,
+          vault: await seal(JSON.stringify({ mnemonic }), newPassword, this.iterations),
+        });
+      } catch (error) {
+        if (!(error instanceof WrongPasswordError)) throw error;
+        updated.push(record);
+      }
+    }
+    await this.storage.set(WALLETS, updated);
   }
 
-  /** Delete a wallet after its password is entered. Its scanned data is the caller's to delete. */
+  /** Delete a wallet after the Cashlet password (or its own, if it was never moved over) is entered. Its scanned data is the caller's to delete. */
   async remove(id: string, password: string): Promise<void> {
     const record = await this.record(id);
     await this.openVault(record, password);
@@ -229,6 +305,7 @@ export class WalletSession {
       if (remaining[0]) await this.storage.set(ACTIVE, remaining[0].id);
       else await this.storage.remove(ACTIVE);
     }
+    this.unlocked?.open.delete(id);
     if (this.unlocked?.id === id) this.lock();
   }
 

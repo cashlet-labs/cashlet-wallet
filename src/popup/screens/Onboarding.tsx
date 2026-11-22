@@ -37,9 +37,18 @@ export function Welcome({
 }
 
 /** Create: password, then the new phrase, then a check that it was written down. */
-export function CreateWallet({ onDone, onBack }: { onDone: () => void; onBack: () => void }) {
+export function CreateWallet({
+  onDone,
+  onBack,
+  unlocked = false,
+}: {
+  onDone: () => void;
+  onBack: () => void;
+  /** Adding a wallet while unlocked: it takes the Cashlet password. */
+  unlocked?: boolean;
+}) {
   const [step, setStep] = useState<"password" | "phrase" | "check">("password");
-  const [network, setNetwork] = useState<Network>("chipnet");
+  const [network, setNetwork] = useState<Network>("mainnet");
   const [password, setPassword] = useState<string | null>(null);
   const [created, setCreated] = useState<{ id: string; words: string[] } | null>(null);
   const [savedIt, setSavedIt] = useState(false);
@@ -51,10 +60,10 @@ export function CreateWallet({ onDone, onBack }: { onDone: () => void; onBack: (
     return (
       <Screen title="Create a wallet" back={onBack}>
         <NetworkChoice value={network} onChange={setNetwork} />
-        <NewPassword onChange={onPassword} />
+        <PasswordFields unlocked={unlocked} onChange={onPassword} />
         <p className="small muted">
-          The password unlocks Cashlet on this device. The recovery phrase restores the wallet
-          anywhere.
+          One password unlocks Cashlet and all its wallets on this device. The recovery phrase
+          restores this wallet anywhere.
         </p>
         <ErrorNotice error={error} />
         <button
@@ -185,10 +194,18 @@ export function BackupCheck({
 }
 
 /** Import: the phrase word by word, then a password. */
-export function ImportWallet({ onDone, onBack }: { onDone: () => void; onBack: () => void }) {
+export function ImportWallet({
+  onDone,
+  onBack,
+  unlocked = false,
+}: {
+  onDone: () => void;
+  onBack: () => void;
+  unlocked?: boolean;
+}) {
   const [length, setLength] = useState<PhraseLength>(12);
   const [words, setWords] = useState<string[]>(() => Array.from({ length: 12 }, () => ""));
-  const [network, setNetwork] = useState<Network>("chipnet");
+  const [network, setNetwork] = useState<Network>("mainnet");
   const [password, setPassword] = useState<string | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
@@ -232,7 +249,7 @@ export function ImportWallet({ onDone, onBack }: { onDone: () => void; onBack: (
       )}
       {check.state === "valid" && <p className="notice ok">The recovery phrase is valid.</p>}
       <NetworkChoice value={network} onChange={setNetwork} />
-      <NewPassword onChange={onPassword} />
+      <PasswordFields unlocked={unlocked} onChange={onPassword} />
       <ErrorNotice error={error} />
       <button
         type="button"
@@ -255,5 +272,31 @@ export function ImportWallet({ onDone, onBack }: { onDone: () => void; onBack: (
         Restore wallet
       </button>
     </Screen>
+  );
+}
+
+/** A new password for the first wallet, or the Cashlet password when adding another. */
+function PasswordFields({
+  unlocked,
+  onChange,
+}: {
+  unlocked: boolean;
+  onChange: (password: string | null) => void;
+}) {
+  const [current, setCurrent] = useState("");
+  if (!unlocked) return <NewPassword onChange={onChange} />;
+  return (
+    <label>
+      Cashlet password
+      <input
+        type="password"
+        autoComplete="current-password"
+        value={current}
+        onChange={(e) => {
+          setCurrent(e.target.value);
+          onChange(e.target.value || null);
+        }}
+      />
+    </label>
   );
 }

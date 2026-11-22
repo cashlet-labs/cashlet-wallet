@@ -1,6 +1,12 @@
 import type { Page } from "@playwright/test";
 import { expect, test, VECTOR } from "./fixtures";
 
+// New wallets are on mainnet; chipnet is one extra step, under Developer options.
+async function useChipnet(page: Page) {
+  await page.getByText("Developer options").click();
+  await page.getByLabel("Use chipnet, the test network").check();
+}
+
 const PASSWORD = "e2e password";
 
 async function setPassword(page: Page) {
@@ -19,6 +25,7 @@ async function importVector(page: Page) {
       new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }),
     );
   }, VECTOR);
+  await useChipnet(page);
   await setPassword(page);
   await page.getByRole("button", { name: "Restore wallet" }).click();
   await expect(page.getByRole("button", { name: "Send", exact: true })).toBeVisible();
@@ -229,4 +236,36 @@ test("the wallet opens in a full tab, and the support page shows the project add
     "bitcoincash:zpwd6edurja89cdq7hppvzq6xxzj5ct58uqf9czcx9",
   );
   await expect(tab.getByRole("img", { name: /support address/ })).toBeVisible();
+});
+
+test("a second wallet takes the Cashlet password, and Settings switches between them", async ({
+  popup,
+}) => {
+  await importVector(popup);
+  await expect(popup.getByText("Chipnet", { exact: true })).toBeVisible();
+  await popup.getByRole("button", { name: "Settings" }).click();
+  await popup.getByRole("button", { name: "Wallets" }).click();
+  await popup.getByRole("button", { name: "Add another wallet" }).click();
+  await popup.getByRole("button", { name: "Create a new wallet" }).click();
+  await expect(popup.getByLabel("Repeat the password")).toHaveCount(0);
+  await popup.getByLabel("Cashlet password").fill("not the password");
+  await popup.getByRole("button", { name: "Continue" }).click();
+  await expect(popup.getByRole("alert")).toBeVisible();
+  await popup.getByLabel("Cashlet password").fill(PASSWORD);
+  await popup.getByRole("button", { name: "Continue" }).click();
+  await popup.getByLabel("I wrote the words down, in order").check();
+  await expect(popup.getByRole("button", { name: "Continue" })).toBeEnabled();
+
+  // Locking and unlocking asks only for the password: no wallet or network choice.
+  await popup.reload();
+  await popup.getByRole("button", { name: "Lock" }).click();
+  await expect(popup.getByRole("combobox")).toHaveCount(0);
+  await popup.getByLabel("Password").fill(PASSWORD);
+  await popup.getByRole("button", { name: "Unlock" }).click();
+  await expect(popup.getByText("Mainnet", { exact: true })).toBeVisible();
+
+  await popup.getByRole("button", { name: "Settings" }).click();
+  await popup.getByRole("button", { name: "Wallets" }).click();
+  await popup.getByRole("button", { name: "Switch" }).click();
+  await expect(popup.getByText("Chipnet", { exact: true })).toBeVisible();
 });

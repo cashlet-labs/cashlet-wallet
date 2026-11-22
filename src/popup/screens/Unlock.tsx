@@ -11,7 +11,6 @@ export function Unlock({
   onUnlocked: () => void;
   onRestore: () => void;
 }) {
-  const [walletId, setWalletId] = useState(status.activeId ?? status.wallets[0]?.id ?? "");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
@@ -33,7 +32,7 @@ export function Unlock({
           setBusy(true);
           setError(null);
           try {
-            await call({ type: "UNLOCK", password, walletId });
+            await call({ type: "UNLOCK", password });
             setPassword("");
             onUnlocked();
           } catch (e) {
@@ -49,18 +48,6 @@ export function Unlock({
         }}
       >
         <h1>Welcome back</h1>
-        {status.wallets.length > 1 && (
-          <label>
-            Wallet
-            <select value={walletId} onChange={(e) => setWalletId(e.target.value)}>
-              {status.wallets.map((w) => (
-                <option key={w.id} value={w.id}>
-                  {w.name} ({w.network})
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
         <label>
           Password
           <input
