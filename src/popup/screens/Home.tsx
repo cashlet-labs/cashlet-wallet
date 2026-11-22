@@ -176,9 +176,15 @@ export function Home({
                     <TokenIcon meta={meta} />
                     <span className="token-names">
                       <span className="token-name">{tokenName(token.category, meta)}</span>
-                      <code className="small muted" title={token.category}>
-                        {short(token.category)}
-                      </code>
+                      {meta?.name ? (
+                        <code className="small muted" title={token.category}>
+                          {short(token.category)}
+                        </code>
+                      ) : (
+                        <span className="small muted">
+                          {meta?.state === "unknown" ? "No registry found" : "Looking up…"}
+                        </span>
+                      )}
                     </span>
                   </span>
                   <span className="token-amount">
