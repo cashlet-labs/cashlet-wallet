@@ -31,7 +31,72 @@ function kindName(kind: number): string {
 const time = (seconds: number) =>
   new Date(seconds * 1000).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 
+const bch = (sats: string) => {
+  const value = BigInt(sats);
+  const whole = value / 100_000_000n;
+  const fraction = (value % 100_000_000n).toString().padStart(8, "0").replace(/0+$/, "");
+  return `${whole}${fraction ? `.${fraction}` : ""} BCH`;
+};
+
+function Transaction({ tx }: { tx: NonNullable<Approval["transaction"]> }) {
+  return (
+    <div className="card stack" data-testid="dapp-transaction">
+      <span>This app asks you to sign a transaction.</span>
+      {tx.userPrompt && (
+        <span className="small">
+          The app says: <q>{tx.userPrompt}</q>
+        </span>
+      )}
+      <span className="small muted">From this wallet</span>
+      <span data-testid="dapp-spending">
+        {bch(tx.signing.value)} in {tx.signing.count} of {tx.inputs} input
+        {tx.inputs === 1 ? "" : "s"}
+      </span>
+      <span className="small muted">Outputs</span>
+      <ul className="event-tags">
+        {tx.outputs.map((o, i) => (
+          <li key={i} className="small">
+            <code>
+              {o.address ??
+                (o.script?.startsWith("6a") ? "Data (OP_RETURN)" : `Script ${o.script}`)}
+            </code>
+            {o.own && <span className="muted"> (this wallet)</span>}
+            <div>
+              {bch(o.value)}
+              {o.token &&
+                ` + ${o.token.nft ? `1 ${o.token.nft}` : ""}${o.token.nft && o.token.amount !== "0" ? " and " : ""}${o.token.amount !== "0" ? `${o.token.amount} tokens` : ""} of ${o.token.category.slice(0, 8)}…`}
+            </div>
+          </li>
+        ))}
+      </ul>
+      <span className="small muted">Network fee</span>
+      <span>{bch(tx.fee)}</span>
+      {tx.feeLevel === "high" && (
+        <p className="notice warning">
+          This fee is higher than usual. Check the amounts before signing.
+        </p>
+      )}
+      {tx.burns.length > 0 && (
+        <p className="notice warning">
+          Tokens of {tx.burns.map((c) => `${c.slice(0, 8)}…`).join(", ")} are spent and not paid
+          anywhere: they will be destroyed.
+        </p>
+      )}
+      <p className="small muted">
+        {tx.broadcast
+          ? tx.signing.count === tx.inputs
+            ? "Cashlet sends the signed transaction to the network and gives it to the app."
+            : "Other inputs still need signatures, so Cashlet gives the signed transaction to the app and does not send it."
+          : "Cashlet only signs and does not send it to the network. The app receives the signed transaction and could still send it."}
+      </p>
+    </div>
+  );
+}
+
 function Details({ approval, npub }: { approval: Approval; npub: string | null }) {
+  if (approval.type === "transaction" && approval.transaction) {
+    return <Transaction tx={approval.transaction} />;
+  }
   if (approval.type === "connect") {
     return (
       <div className="card stack">
@@ -177,7 +242,16 @@ export function Approvals({ onDone }: { onDone: () => void }) {
           disabled={busy}
           onClick={() => void decide(true)}
         >
-          {approval.type === "connect" ? "Connect" : approval.type === "login" ? "Log in" : "Sign"}
+          {approval.type === "connect"
+            ? "Connect"
+            : approval.type === "login"
+              ? "Log in"
+              : approval.type === "transaction"
+                ? approval.transaction?.broadcast &&
+                  approval.transaction.signing.count === approval.transaction.inputs
+                  ? "Sign and send"
+                  : "Sign"
+                : "Sign"}
         </button>
       </div>
     </Screen>

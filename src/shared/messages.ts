@@ -8,6 +8,7 @@
  */
 import type { BchNetwork } from "@cashlet-labs/bnd";
 import type { ApprovalView } from "../background/sites";
+import type { WizardConnectionView } from "../background/wizard";
 
 export interface RecipientMessage {
   address: string;
@@ -51,7 +52,10 @@ export type Request =
   | { type: "APPROVALS_LIST" }
   | { type: "APPROVAL_DECIDE"; id: string; approve: boolean; remember: boolean }
   | { type: "SITES_LIST" }
-  | { type: "SITE_REMOVE"; origin: string };
+  | { type: "SITE_REMOVE"; origin: string }
+  | { type: "WIZARD_CONNECT"; uri: string }
+  | { type: "WIZARD_LIST" }
+  | { type: "WIZARD_DISCONNECT"; id: string };
 
 export type RequestType = Request["type"];
 
@@ -132,6 +136,9 @@ export interface ResponseFor {
   APPROVAL_DECIDE: { ok: true };
   SITES_LIST: { ok: true; sites: { origin: string; kinds: number[]; connectedAt: number }[] };
   SITE_REMOVE: { ok: true };
+  WIZARD_CONNECT: { ok: true; id: string };
+  WIZARD_LIST: { ok: true; connections: WizardConnectionView[] };
+  WIZARD_DISCONNECT: { ok: true };
   SERVER_HEALTH: {
     ok: true;
     current: string | null;
@@ -232,6 +239,7 @@ export function parseRequest(value: unknown): Request | { error: string } {
     case "IDENTITY_BIND":
     case "APPROVALS_LIST":
     case "SITES_LIST":
+    case "WIZARD_LIST":
       return hasKeys(v, ["type"]) ? ({ type: v.type } as Request) : bad;
     case "VERIFY_BINDING":
       if (!hasKeys(v, ["type", "event"])) return bad;
@@ -341,6 +349,14 @@ export function parseRequest(value: unknown): Request | { error: string } {
         typeof v.approve === "boolean" &&
         typeof v.remember === "boolean"
         ? { type: "APPROVAL_DECIDE", id: v.id, approve: v.approve, remember: v.remember }
+        : bad;
+    case "WIZARD_CONNECT":
+      return hasKeys(v, ["type", "uri"]) && text(v.uri, 2_000)
+        ? { type: "WIZARD_CONNECT", uri: v.uri }
+        : bad;
+    case "WIZARD_DISCONNECT":
+      return hasKeys(v, ["type", "id"]) && text(v.id, 100)
+        ? { type: "WIZARD_DISCONNECT", id: v.id }
         : bad;
     case "SITE_REMOVE":
       return hasKeys(v, ["type", "origin"]) && text(v.origin, 300)

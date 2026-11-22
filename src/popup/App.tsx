@@ -3,12 +3,15 @@ import { call, type Status } from "./api";
 import { ErrorNotice, Screen } from "./components/common";
 import { poll } from "./errors";
 import { Approvals } from "./screens/Approvals";
+import { Apps } from "./screens/Apps";
 import { Home } from "./screens/Home";
 import { Identity } from "./screens/Identity";
 import { BackupCheck, CreateWallet, ImportWallet, Welcome } from "./screens/Onboarding";
 import { Receive } from "./screens/Receive";
 import { Send } from "./screens/Send";
 import { Settings } from "./screens/Settings";
+import { Support } from "./screens/Support";
+import { currentSurface, openSidePanel, openTab } from "./views";
 import { Unlock } from "./screens/Unlock";
 
 type View =
@@ -16,6 +19,8 @@ type View =
   | "send"
   | "receive"
   | "identity"
+  | "apps"
+  | "support"
   | "settings"
   | "welcome"
   | "create"
@@ -96,6 +101,10 @@ export function App() {
     body = <Receive onBack={go("home")} />;
   } else if (view === "identity") {
     body = <Identity onBack={go("home")} />;
+  } else if (view === "support") {
+    body = <Support onBack={go("home")} />;
+  } else if (view === "apps") {
+    body = <Apps onBack={go("home")} />;
   } else if (view === "settings") {
     body = (
       <Settings
@@ -114,14 +123,16 @@ export function App() {
         onSend={() => setView("send")}
         onReceive={() => setView("receive")}
         onIdentity={() => setView("identity")}
+        onApps={() => setView("apps")}
         onBackup={() => setView("backup")}
       />
     );
   }
 
   const active = status?.wallets.find((w) => w.id === status.activeId);
+  const surface = currentSurface();
   return (
-    <div className="app">
+    <div className={`app surface-${surface}`}>
       <header className="topbar">
         <span className="brand">
           <span className="mark" aria-hidden="true">
@@ -132,6 +143,30 @@ export function App() {
             <span className={`tag${status.network === "chipnet" ? " test" : ""}`}>
               {status.network === "chipnet" ? "Chipnet" : "Mainnet"}
             </span>
+          )}
+        </span>
+        <span className="row views" aria-label="Wallet view">
+          {surface !== "sidepanel" && (
+            <button
+              type="button"
+              className="icon"
+              title="Open in the side panel"
+              aria-label="Open in the side panel"
+              onClick={openSidePanel}
+            >
+              ◧
+            </button>
+          )}
+          {surface !== "tab" && (
+            <button
+              type="button"
+              className="icon"
+              title="Open in a full tab"
+              aria-label="Open in a full tab"
+              onClick={openTab}
+            >
+              ⤢
+            </button>
           )}
         </span>
         {status?.unlocked && (
@@ -159,6 +194,11 @@ export function App() {
         )}
       </header>
       <main>{body}</main>
+      <footer className="support-link">
+        <button type="button" className="link" onClick={() => setView("support")}>
+          Open source · Support Cashlet
+        </button>
+      </footer>
     </div>
   );
 }

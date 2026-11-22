@@ -432,3 +432,25 @@ input[aria-invalid="true"] {
   max-height: 8rem;
   overflow: auto;
 }
+
+/* Popup, side panel or full tab: same page, different frame. */
+.views {
+  margin-left: auto;
+  margin-right: 8px;
+}
+.surface-tab {
+  max-width: 560px;
+  margin: 0 auto;
+  min-height: 100vh;
+}
+.surface-tab,
+.surface-sidepanel {
+  width: 100%;
+}
+.support-link {
+  text-align: center;
+  padding: 8px 0 12px;
+}
+.support-link .link {
+  font-size: 0.8rem;
+}
