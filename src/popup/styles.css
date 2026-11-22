@@ -469,3 +469,11 @@ input[aria-invalid="true"] {
   display: grid;
   gap: 8px;
 }
+
+/* Signing */
+.card code {
+  overflow-wrap: anywhere;
+}
+textarea {
+  resize: vertical;
+}

@@ -1,5 +1,7 @@
+import { npubEncode } from "@cashlet-labs/bnd";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import type { AuthLevel, UnsignedEvent } from "@cashlet-labs/bnd";
+import { cipherScheme, isCipherMethod, isEncrypt, type CipherRequest } from "../shared/page-cipher";
 import { rememberable, type PageRequest } from "../shared/page-messages";
 import type { DappTxSummary } from "../wallet/dapp-sign";
 import type { Identity } from "../wallet/identity";
@@ -9,7 +11,7 @@ import type { KeyValueStore } from "../wallet/session";
 export interface ApprovalView {
   id: string;
   origin: string;
-  type: "connect" | "sign" | "login" | "transaction";
+  type: "connect" | "sign" | "login" | "transaction" | "encrypt" | "decrypt";
   createdAt: number;
   expiresAt: number;
   /** The exact event that will be signed (the wallet adds pubkey, id and signature). */
@@ -19,6 +21,8 @@ export interface ApprovalView {
   transaction: DappTxSummary | null;
   /** Whether "don't ask again" may be offered for this request. */
   rememberable: boolean;
+  /** An encrypt or decrypt request: the other side's key, and the text to encrypt. */
+  cipher?: { scheme: "nip04" | "nip44"; peer: string; plaintext: string | null };
 }
 
 export interface SitePermission {
@@ -26,6 +30,8 @@ export interface SitePermission {
   publicKey: string;
   /** Event kinds the site may have signed without asking. */
   kinds: number[];
+  /** Encryption methods (for example "nostr.nip44.decrypt") the site may use without asking. */
+  ciphers?: string[];
   connectedAt: number;
 }
 
@@ -85,6 +91,9 @@ export class SiteGate {
   /** Answer a page. Resolves with the result, or rejects with a reason the page may see. */
   async request(origin: string, request: PageRequest, signal?: AbortSignal): Promise<unknown> {
     if (request.method === "nostr.getRelays") return {};
+    // Encryption needs a connected site; a locked wallet cannot say, so that is checked on approval.
+    if (isCipherMethod(request.method) && (await this.connected(origin)) === false)
+      throw new SiteError("this site is not connected; ask for the public key first");
     const allowed = await this.allowedWithoutAsking(origin, request);
     if (allowed) return this.perform(origin, request);
     const view = this.view(origin, request);
@@ -125,6 +134,18 @@ export class SiteGate {
     this.finish(id, new SiteError(reason));
   }
 
+  /** Whether the site has the current Nostr key; null while the wallet is locked. */
+  private async connected(origin: string): Promise<boolean | null> {
+    let unlocked;
+    try {
+      unlocked = this.deps.unlocked();
+    } catch {
+      return null;
+    }
+    const site = (await this.permissions(unlocked.walletId))[origin];
+    return !!site && site.publicKey === (await unlocked.identity.nostrPublicKey());
+  }
+
   /** True when the wallet is unlocked and the user already allowed this request for this site. */
   private async allowedWithoutAsking(origin: string, request: PageRequest): Promise<boolean> {
     let unlocked;
@@ -138,7 +159,7 @@ export class SiteGate {
     if (request.method === "nostr.getPublicKey") return true;
     if (request.method === "nostr.signEvent")
       return rememberable(request.event.kind) && site.kinds.includes(request.event.kind);
-    return false;
+    return site.ciphers?.includes(request.method) ?? false;
   }
 
   private async perform(origin: string, request: PageRequest): Promise<unknown> {
@@ -152,10 +173,33 @@ export class SiteGate {
         return identity.login(request.challenge, origin);
       case "nostr.getRelays":
         return {};
+      default:
+        if ((await this.connected(origin)) !== true)
+          throw new SiteError("this site is not connected; ask for the public key first");
+        return identity.cipher(request);
     }
   }
 
   private view(origin: string, request: PageRequest): ApprovalView {
+    if (isCipherMethod(request.method)) {
+      const cipher = request as CipherRequest;
+      return {
+        id: "",
+        origin,
+        type: isEncrypt(cipher) ? "encrypt" : "decrypt",
+        createdAt: 0,
+        expiresAt: 0,
+        event: null,
+        login: null,
+        transaction: null,
+        rememberable: true,
+        cipher: {
+          scheme: cipherScheme(cipher.method),
+          peer: npubEncode(cipher.pubkey),
+          plaintext: isEncrypt(cipher) ? cipher.plaintext : null,
+        },
+      };
+    }
     return {
       id: "",
       origin,
@@ -278,9 +322,14 @@ export class SiteGate {
           ? all[origin]
           : { publicKey, kinds: [], connectedAt: this.deps.now() };
       const kind = pending.request.method === "nostr.signEvent" ? pending.request.event.kind : null;
+      const ciphers = site.ciphers ?? [];
+      const method = pending.request.method;
       all[origin] = {
         ...site,
         kinds: kind === null || site.kinds.includes(kind) ? site.kinds : [...site.kinds, kind],
+        ...(isCipherMethod(method) && !ciphers.includes(method)
+          ? { ciphers: [...ciphers, method] }
+          : {}),
       };
       await this.deps.settings.set(this.key(walletId), all);
     }

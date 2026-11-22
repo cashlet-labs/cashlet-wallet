@@ -17,7 +17,9 @@ import {
 } from "@cashlet-labs/bnd";
 import { didOf } from "@cashlet-labs/bnd/did";
 import { bytesToHex } from "@noble/hashes/utils.js";
+import type { CipherRequest } from "../shared/page-cipher";
 import type { HdWallet } from "./hd";
+import { runCipher } from "./nostr-crypto";
 import type { KeyValueStore } from "./session";
 
 /**
@@ -256,6 +258,12 @@ export class Identity {
   async signNostrEvent(template: UnsignedEvent): Promise<NostrEvent> {
     const { nostrAccount } = await this.keys();
     return signEvent(this.wallet.nostrKey(nostrAccount).privateKey, template);
+  }
+
+  /** Encrypt or decrypt for a site the user approved, with the identity's Nostr key (NIP-04, NIP-44). */
+  async cipher(request: CipherRequest): Promise<string> {
+    const { nostrAccount } = await this.keys();
+    return runCipher(request, this.wallet.nostrKey(nostrAccount).privateKey);
   }
 
   /**
