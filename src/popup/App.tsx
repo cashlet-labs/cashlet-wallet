@@ -9,6 +9,7 @@ import { Identity } from "./screens/Identity";
 import { BackupCheck, CreateWallet, ImportWallet, Welcome } from "./screens/Onboarding";
 import { Receive } from "./screens/Receive";
 import { Send } from "./screens/Send";
+import { Transaction } from "./screens/Transaction";
 import { Settings } from "./screens/Settings";
 import { Support } from "./screens/Support";
 import { currentSurface, openSidePanel, openTab } from "./views";
@@ -22,6 +23,7 @@ type View =
   | "apps"
   | "support"
   | "settings"
+  | "transaction"
   | "welcome"
   | "create"
   | "import"
@@ -30,6 +32,7 @@ type View =
 export function App() {
   const [status, setStatus] = useState<Status | null>(null);
   const [view, setView] = useState<View>("home");
+  const [txid, setTxid] = useState<string | null>(null);
   const [error, setError] = useState<unknown>(null);
 
   const refresh = useCallback(async () => {
@@ -107,6 +110,8 @@ export function App() {
     body = <Support onBack={go("home")} />;
   } else if (view === "apps") {
     body = <Apps onBack={go("home")} />;
+  } else if (view === "transaction" && txid) {
+    body = <Transaction txid={txid} network={status.network ?? "chipnet"} onBack={go("home")} />;
   } else if (view === "settings") {
     body = (
       <Settings
@@ -127,6 +132,10 @@ export function App() {
         onIdentity={() => setView("identity")}
         onApps={() => setView("apps")}
         onBackup={() => setView("backup")}
+        onTransaction={(id) => {
+          setTxid(id);
+          setView("transaction");
+        }}
       />
     );
   }

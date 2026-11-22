@@ -4,7 +4,10 @@ import { parsePaymentRequest } from "../../wallet/address";
 import { formatBch, parseBch } from "../../wallet/amount";
 import { call } from "../api";
 import { Bch, CopyButton, ErrorNotice, Screen } from "../components/common";
+import { Fiat, useRate } from "../fiat";
 import { loadContacts, type Contact } from "../contacts";
+import { tokenAmountText, tokenName, useTokenMeta } from "../token-meta";
+import { parseTokenAmount } from "../../wallet/token-amount";
 
 type Plan = Extract<ResponseFor["PREPARE_SEND"], { ok: true }>;
 type Balance = Extract<ResponseFor["GET_BALANCE"], { ok: true }>;
@@ -25,6 +28,9 @@ export function Send({ network, onBack }: { network: Network; onBack: () => void
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
   const [expired, setExpired] = useState(false);
+  // True while the amount is the one worked out by Max; editing it turns it off.
+  const [maxed, setMaxed] = useState(false);
+  const quote = useRate();
 
   // A prepared send can be confirmed for two minutes; after that it must be reviewed again.
   useEffect(() => {
@@ -55,7 +61,36 @@ export function Send({ network, onBack }: { network: Network; onBack: () => void
     }
   };
 
+  /** Fill in the largest amount that can go to the entered recipient. */
+  const useMax = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const target = to.trim();
+      const address = isPayeeTarget(target)
+        ? (await call({ type: "RESOLVE_PAYEE", target })).address
+        : parsePaymentRequest(to, network).destination.address;
+      const max = await call({ type: "GET_MAX_SEND", address });
+      setAmount(formatBch(max.value));
+      setMaxed(true);
+    } catch (e) {
+      setError(e);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const token = balance?.tokens.find((t) => t.category === asset) ?? null;
+  const tokenMeta = useTokenMeta(balance?.tokens.map((t) => t.category) ?? []);
+  const assetMeta = tokenMeta.get(asset);
+  const decimals = assetMeta?.decimals ?? 0;
+
+  let typedSats: number | null = null;
+  try {
+    typedSats = amount.trim() === "" ? null : parseBch(amount);
+  } catch {
+    // The fiat value shows once the amount is valid.
+  }
 
   const review = async () => {
     setBusy(true);
@@ -78,12 +113,16 @@ export function Send({ network, onBack }: { network: Network; onBack: () => void
               value: 0,
               token: {
                 category: asset,
-                amount: /^[1-9][0-9]*$/.test(tokenAmount.trim()) ? tokenAmount.trim() : "invalid",
+                amount: parseTokenAmount(tokenAmount, decimals).toString(),
               },
             };
-      if (recipient.token?.amount === "invalid")
-        throw new RangeError("enter a whole number of tokens");
-      setPlan(await call({ type: "PREPARE_SEND", recipients: [recipient] }));
+      setPlan(
+        await call({
+          type: "PREPARE_SEND",
+          recipients: [recipient],
+          ...(maxed && asset === "bch" ? { max: true as const } : {}),
+        }),
+      );
     } catch (e) {
       setError(e);
     } finally {
@@ -135,22 +174,27 @@ export function Send({ network, onBack }: { network: Network; onBack: () => void
                 <dd>
                   {o.token ? (
                     <>
-                      {o.token.nft ? "1 NFT" : `${o.token.amount} tokens`}{" "}
+                      {o.token.nft
+                        ? "1 NFT"
+                        : `${tokenAmountText(o.token.amount, tokenMeta.get(o.token.category))}${tokenMeta.get(o.token.category)?.symbol ? "" : " tokens"}`}{" "}
                       <span className="muted">(+ {o.value} sats)</span>
                     </>
                   ) : (
-                    <Bch sats={o.value} />
+                    <>
+                      <Bch sats={o.value} /> <Fiat quote={quote} sats={o.value} />
+                    </>
                   )}
                 </dd>
               </div>
             ))}
           <dt>Network fee</dt>
           <dd>
-            {plan.fee} sats <span className="muted">({plan.size} bytes)</span>
+            {plan.fee} sats <span className="muted">({plan.size} bytes)</span>{" "}
+            <Fiat quote={quote} sats={plan.fee} />
           </dd>
           <dt>Total leaving the wallet</dt>
           <dd data-testid="outgoing">
-            <Bch sats={plan.outgoing} />
+            <Bch sats={plan.outgoing} /> <Fiat quote={quote} sats={plan.outgoing} />
           </dd>
           {plan.outputs.some((o) => o.change) && (
             <>
@@ -161,7 +205,11 @@ export function Send({ network, onBack }: { network: Network; onBack: () => void
                   .map((o, i) => (
                     <div key={i}>
                       {o.token ? (
-                        `${o.token.nft ? "1 NFT" : `${o.token.amount} tokens`}`
+                        o.token.nft ? (
+                          "1 NFT"
+                        ) : (
+                          `${tokenAmountText(o.token.amount, tokenMeta.get(o.token.category))}${tokenMeta.get(o.token.category)?.symbol ? "" : " tokens"}`
+                        )
                       ) : (
                         <Bch sats={o.value} />
                       )}
@@ -229,7 +277,9 @@ export function Send({ network, onBack }: { network: Network; onBack: () => void
               .filter((t) => t.amount !== "0")
               .map((t) => (
                 <option key={t.category} value={t.category}>
-                  Token {t.category.slice(0, 8)}… ({t.amount})
+                  {tokenMeta.get(t.category)?.name
+                    ? `${tokenName(t.category, tokenMeta.get(t.category))} (${tokenAmountText(t.amount, tokenMeta.get(t.category))})`
+                    : `Token ${t.category.slice(0, 8)}… (${t.amount})`}
                 </option>
               ))}
           </select>
@@ -238,27 +288,41 @@ export function Send({ network, onBack }: { network: Network; onBack: () => void
       {asset === "bch" ? (
         <label>
           Amount (BCH)
-          <input
-            inputMode="decimal"
-            placeholder="0.00"
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
-          />
+          <span className="amount-row">
+            <input
+              inputMode="decimal"
+              placeholder="0.00"
+              value={amount}
+              onChange={(e) => {
+                setAmount(e.target.value);
+                setMaxed(false);
+              }}
+            />
+            <button type="button" disabled={busy || !to} onClick={useMax}>
+              Max
+            </button>
+          </span>
+          <Fiat quote={quote} sats={typedSats} />
           {balance && (
             <span className="small muted">
               Available: <Bch sats={balance.confirmed + balance.unconfirmed} />
+              {maxed && ". Max sends all BCH coins and leaves the tokens."}
             </span>
           )}
         </label>
       ) : (
         <label>
-          Number of tokens
+          {assetMeta?.symbol ? `Amount (${assetMeta.symbol})` : "Number of tokens"}
           <input
-            inputMode="numeric"
+            inputMode={decimals > 0 ? "decimal" : "numeric"}
             value={tokenAmount}
             onChange={(e) => setTokenAmount(e.target.value)}
           />
-          {token && <span className="small muted">Available: {token.amount}</span>}
+          {token && (
+            <span className="small muted">
+              Available: {tokenAmountText(token.amount, assetMeta)}
+            </span>
+          )}
         </label>
       )}
       <ErrorNotice error={error} />

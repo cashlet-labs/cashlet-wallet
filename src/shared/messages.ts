@@ -9,6 +9,8 @@
 import type { BchNetwork } from "@cashlet-labs/bnd";
 import type { ApprovalView } from "../background/sites";
 import type { WizardConnectionView } from "../background/wizard";
+import { isBuiltInServer, isFeeRate } from "../wallet/net-settings";
+import { isFiatChoice } from "../wallet/rates";
 
 export interface RecipientMessage {
   address: string;
@@ -34,7 +36,13 @@ export type Request =
   | { type: "GET_RECEIVE_ADDRESS"; tokenAware: boolean }
   | { type: "GET_BALANCE" }
   | { type: "GET_HISTORY" }
-  | { type: "PREPARE_SEND"; recipients: RecipientMessage[] }
+  | { type: "PREPARE_SEND"; recipients: RecipientMessage[]; max?: true }
+  | { type: "GET_MAX_SEND"; address: string }
+  | { type: "GET_NETWORK_SETTINGS" }
+  | { type: "SET_FEE_RATE"; rate: number | null }
+  | { type: "SET_PREFERRED_SERVER"; network: BchNetwork; url: string | null }
+  | { type: "GET_TRANSACTION"; txid: string }
+  | { type: "GET_TOKEN_META"; categories: string[] }
   | { type: "CONFIRM_SEND"; planId: string }
   | { type: "REVEAL_MNEMONIC"; password: string }
   | { type: "CHANGE_PASSWORD"; oldPassword: string; newPassword: string }
@@ -57,7 +65,11 @@ export type Request =
   | { type: "SITE_REMOVE"; origin: string }
   | { type: "WIZARD_CONNECT"; uri: string }
   | { type: "WIZARD_LIST" }
-  | { type: "WIZARD_DISCONNECT"; id: string };
+  | { type: "WIZARD_DISCONNECT"; id: string }
+  | { type: "GET_RATE" }
+  | { type: "SET_FIAT"; currency: string }
+  | { type: "SIGN_MESSAGE"; source: "identity" | "receive"; message: string }
+  | { type: "VERIFY_MESSAGE"; address: string; message: string; signature: string };
 
 export type RequestType = Request["type"];
 
@@ -65,6 +77,18 @@ export interface TokenBalance {
   category: string;
   amount: string;
   nfts: { capability: string; commitment: string }[];
+}
+
+/** What is known about one token category. Text is already cleaned; `icon` is a data: address. */
+export interface TokenMetaEntry {
+  category: string;
+  /** `pending` while it is being looked up, `unknown` when no usable registry was found. */
+  state: "known" | "pending" | "unknown";
+  name: string | null;
+  symbol: string | null;
+  decimals: number;
+  icon: string | null;
+  nftTypes: { commitment: string; name: string }[];
 }
 
 export interface PlannedOutputMessage {
@@ -109,6 +133,30 @@ export interface ResponseFor {
   GET_RECEIVE_ADDRESS: { ok: true; address: string; index: number };
   GET_BALANCE: { ok: true; confirmed: number; unconfirmed: number; tokens: TokenBalance[] };
   GET_HISTORY: { ok: true; entries: { txid: string; height: number; time: number | null }[] };
+  GET_TRANSACTION: {
+    ok: true;
+    txid: string;
+    direction: "received" | "sent" | "self";
+    /** Satoshis the wallet gained (positive) or lost (negative), fee included. */
+    net: number;
+    /** Null when a source output is unknown, or for a coinbase. */
+    fee: number | null;
+    size: number;
+    /** Block height; 0 or less while pending. */
+    height: number;
+    time: number | null;
+    /** Null while pending, or when the chain height is not known yet. */
+    confirmations: number | null;
+    /** Changes per category; the amount is a decimal string and may be negative. */
+    tokens: { category: string; amount: string; nfts: number }[];
+    /** Where a send went. The address is null for a script with no address. */
+    counterparties: { address: string | null; value: number }[];
+    /** The wallet's addresses that were paid. */
+    receivedOn: string[];
+    /** False when some source outputs could not be fetched. */
+    complete: boolean;
+  };
+  GET_TOKEN_META: { ok: true; tokens: TokenMetaEntry[] };
   PREPARE_SEND: {
     ok: true;
     planId: string;
@@ -118,6 +166,21 @@ export interface ResponseFor {
     outputs: PlannedOutputMessage[];
     expiresAt: number;
   };
+  GET_MAX_SEND: { ok: true; value: number; fee: number };
+  GET_NETWORK_SETTINGS: {
+    ok: true;
+    network: BchNetwork;
+    /** Chosen fee rate in sat/byte, or null for automatic. */
+    feeRate: number | null;
+    minFeeRate: number;
+    maxFeeRate: number;
+    /** The built-in servers for this network. */
+    servers: string[];
+    /** The preferred server, or null for automatic. */
+    preferredServer: string | null;
+  };
+  SET_FEE_RATE: { ok: true };
+  SET_PREFERRED_SERVER: { ok: true };
   CONFIRM_SEND: { ok: true; txid: string };
   REVEAL_MNEMONIC: { ok: true; mnemonic: string };
   CHANGE_PASSWORD: { ok: true };
@@ -144,11 +207,26 @@ export interface ResponseFor {
   RESOLVE_PAYEE: { ok: true; address: string; tokenAddress: string; did: string; npub: string };
   APPROVALS_LIST: { ok: true; approvals: ApprovalView[]; npub: string | null };
   APPROVAL_DECIDE: { ok: true };
-  SITES_LIST: { ok: true; sites: { origin: string; kinds: number[]; connectedAt: number }[] };
+  SITES_LIST: {
+    ok: true;
+    sites: { origin: string; kinds: number[]; ciphers?: string[]; connectedAt: number }[];
+  };
   SITE_REMOVE: { ok: true };
   WIZARD_CONNECT: { ok: true; id: string };
   WIZARD_LIST: { ok: true; connections: WizardConnectionView[] };
   WIZARD_DISCONNECT: { ok: true };
+  GET_RATE: {
+    ok: true;
+    /** The chosen currency, or "OFF". */
+    currency: string;
+    /** The price of 1 BCH, or null when prices are off, unavailable or the wallet is on chipnet. */
+    rate: number | null;
+    fetchedAt: number | null;
+    testCoins: boolean;
+  };
+  SET_FIAT: { ok: true };
+  SIGN_MESSAGE: { ok: true; address: string; signature: string };
+  VERIFY_MESSAGE: { ok: true; valid: boolean };
   SERVER_HEALTH: {
     ok: true;
     current: string | null;
@@ -159,6 +237,7 @@ export interface ResponseFor {
 export type ErrorResponse = { ok: false; error: string; code?: string };
 
 const MAX_EVENT_BYTES = 64 * 1024;
+const MAX_SIGNED_MESSAGE_CHARS = 64 * 1024;
 const HEX32 = /^[0-9a-f]{64}$/;
 
 type Fields = Record<string, unknown>;
@@ -250,6 +329,7 @@ export function parseRequest(value: unknown): Request | { error: string } {
     case "APPROVALS_LIST":
     case "SITES_LIST":
     case "WIZARD_LIST":
+    case "GET_RATE":
       return hasKeys(v, ["type"]) ? ({ type: v.type } as Request) : bad;
     case "VERIFY_BINDING":
       if (!hasKeys(v, ["type", "event"])) return bad;
@@ -294,13 +374,46 @@ export function parseRequest(value: unknown): Request | { error: string } {
       return hasKeys(v, ["type", "tokenAware"]) && typeof v.tokenAware === "boolean"
         ? { type: "GET_RECEIVE_ADDRESS", tokenAware: v.tokenAware }
         : bad;
+    case "GET_TOKEN_META": {
+      if (!hasKeys(v, ["type", "categories"]) || !Array.isArray(v.categories)) return bad;
+      const categories = v.categories as unknown[];
+      if (categories.length === 0 || categories.length > 100) return bad;
+      if (!categories.every((c) => typeof c === "string" && HEX32.test(c))) return bad;
+      return { type: "GET_TOKEN_META", categories: [...new Set(categories as string[])] };
+    }
     case "PREPARE_SEND": {
-      if (!hasKeys(v, ["type", "recipients"]) || !Array.isArray(v.recipients)) return bad;
+      if (!hasKeys(v, ["type", "recipients"], ["max"]) || !Array.isArray(v.recipients)) return bad;
       if (v.recipients.length === 0 || v.recipients.length > 50) return bad;
       const recipients = v.recipients.map(recipient);
       if (recipients.some((r) => r === null)) return bad;
+      if (v.max !== undefined) {
+        // A max send is BCH to one address; the amount is worked out by the wallet.
+        const [only] = recipients as RecipientMessage[];
+        if (v.max !== true || recipients.length !== 1 || only!.token || only!.nft) return bad;
+        return { type: "PREPARE_SEND", recipients: [only!], max: true };
+      }
       return { type: "PREPARE_SEND", recipients: recipients as RecipientMessage[] };
     }
+    case "GET_MAX_SEND":
+      return hasKeys(v, ["type", "address"]) && text(v.address, 120)
+        ? { type: "GET_MAX_SEND", address: v.address }
+        : bad;
+    case "GET_NETWORK_SETTINGS":
+      return hasKeys(v, ["type"]) ? { type: "GET_NETWORK_SETTINGS" } : bad;
+    case "SET_FEE_RATE":
+      return hasKeys(v, ["type", "rate"]) && (v.rate === null || isFeeRate(v.rate))
+        ? { type: "SET_FEE_RATE", rate: v.rate }
+        : bad;
+    case "SET_PREFERRED_SERVER":
+      return hasKeys(v, ["type", "network", "url"]) &&
+        network(v.network) &&
+        (v.url === null || isBuiltInServer(v.network, v.url))
+        ? { type: "SET_PREFERRED_SERVER", network: v.network, url: v.url }
+        : bad;
+    case "GET_TRANSACTION":
+      return hasKeys(v, ["type", "txid"]) && typeof v.txid === "string" && HEX32.test(v.txid)
+        ? { type: "GET_TRANSACTION", txid: v.txid }
+        : bad;
     case "CONFIRM_SEND":
       return hasKeys(v, ["type", "planId"]) && text(v.planId, 64)
         ? { type: "CONFIRM_SEND", planId: v.planId }
@@ -384,9 +497,31 @@ export function parseRequest(value: unknown): Request | { error: string } {
       return hasKeys(v, ["type", "id"]) && text(v.id, 100)
         ? { type: "WIZARD_DISCONNECT", id: v.id }
         : bad;
+    case "SET_FIAT":
+      return hasKeys(v, ["type", "currency"]) && isFiatChoice(v.currency)
+        ? { type: "SET_FIAT", currency: v.currency }
+        : bad;
     case "SITE_REMOVE":
       return hasKeys(v, ["type", "origin"]) && text(v.origin, 300)
         ? { type: "SITE_REMOVE", origin: v.origin }
+        : bad;
+    case "SIGN_MESSAGE":
+      return hasKeys(v, ["type", "source", "message"]) &&
+        (v.source === "identity" || v.source === "receive") &&
+        text(v.message, MAX_SIGNED_MESSAGE_CHARS)
+        ? { type: "SIGN_MESSAGE", source: v.source, message: v.message }
+        : bad;
+    case "VERIFY_MESSAGE":
+      return hasKeys(v, ["type", "address", "message", "signature"]) &&
+        text(v.address, 120) &&
+        text(v.message, MAX_SIGNED_MESSAGE_CHARS) &&
+        text(v.signature, 200)
+        ? {
+            type: "VERIFY_MESSAGE",
+            address: v.address,
+            message: v.message,
+            signature: v.signature,
+          }
         : bad;
     default:
       return { error: `unknown message type: ${v.type}` };

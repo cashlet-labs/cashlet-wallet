@@ -1,6 +1,7 @@
 import type { WebSocketLike } from "../electrum/client";
 import { ElectrumPool } from "../electrum/pool";
 import { NETWORKS } from "../electrum/servers";
+import { orderServers } from "../wallet/net-settings";
 import { isExtensionSender, parseRequest, type ErrorResponse } from "../shared/messages";
 import { pageOrigin, parsePageRequest } from "../shared/page-messages";
 import { WalletSession, type KeyValueStore } from "../wallet/session";
@@ -22,10 +23,10 @@ const stores = new Map<string, Promise<IndexedDbStore>>();
 const service = new WalletService({
   session: new WalletSession(local),
   settings: local,
-  connect: (network) => {
+  connect: (network, preferredServer) => {
     const config = NETWORKS[network];
     const pool = new ElectrumPool({
-      servers: config.servers,
+      servers: orderServers(config.servers, preferredServer ?? null),
       checkpoint: config.checkpoint,
       // The browser's WebSocket has the members WebSocketLike uses; only its handler types differ.
       createSocket: (url) => new WebSocket(url) as unknown as WebSocketLike,
@@ -50,6 +51,9 @@ const service = new WalletService({
   },
   onApprovals: (waiting) => void showApprovals(waiting),
 });
+
+/** Links one page load may report, however many it shows. */
+const MAX_DETECTIONS_PER_PAGE = 20;
 
 const extensionOrigin = chrome.runtime.getURL("");
 
@@ -89,9 +93,17 @@ chrome.runtime.onConnect.addListener((port) => {
   // Requests die with the page: closing or navigating it rejects what is waiting.
   const closed = new AbortController();
   port.onDisconnect.addListener(() => closed.abort());
+  let detections = 0;
   port.onMessage.addListener((message: { id?: unknown; method?: unknown; params?: unknown }) => {
     if (typeof message?.id !== "number") return;
     const id = message.id;
+    // A link the content script found on the page. The page never sees the outcome.
+    if (message.method === "wizard.detect") {
+      const params = message.params as { uri?: unknown } | null;
+      if (++detections <= MAX_DETECTIONS_PER_PAGE)
+        void service.detectWizard(origin, params?.uri, closed.signal).catch(() => undefined);
+      return;
+    }
     const answer = (value: { ok: true; result: unknown } | { ok: false; error: string }) => {
       if (!closed.signal.aborted) port.postMessage({ id, ...value });
     };

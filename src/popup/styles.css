@@ -469,3 +469,116 @@ input[aria-invalid="true"] {
   display: grid;
   gap: 8px;
 }
+
+/* Send max and fees */
+.amount-row {
+  display: flex;
+  gap: 8px;
+}
+.amount-row input {
+  flex: 1;
+}
+
+/* Transaction detail */
+.tx-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  border: 0;
+  background: none;
+  padding: 0;
+  text-align: left;
+  font-weight: 400;
+}
+.tx-what {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.tx-amount {
+  font-variant-numeric: tabular-nums;
+}
+.tx-amount.received {
+  color: var(--mint);
+}
+.tx-amount.self {
+  color: var(--muted);
+}
+.tx-details {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+}
+.tx-field dd {
+  margin: 2px 0 0;
+  overflow-wrap: anywhere;
+}
+.tx-addresses {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+.tx-addresses li {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.tx-id {
+  word-break: break-all;
+}
+
+/* Token metadata */
+.token-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.token-icon {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+.token-icon-empty {
+  background: var(--line);
+}
+.token-names {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.token-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.token-amount {
+  text-align: right;
+}
+
+/* Fiat prices */
+.fiat {
+  font-size: 0.85rem;
+}
+.fiat-line {
+  min-height: 1.2em;
+}
+
+/* Signing */
+.card code {
+  overflow-wrap: anywhere;
+}
+textarea {
+  resize: vertical;
+}
+
+/* WizardConnect detection */
+.list [data-testid="app-origin"] {
+  overflow-wrap: anywhere;
+}

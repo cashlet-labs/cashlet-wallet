@@ -4,10 +4,20 @@ import { discoverBinding, publishBinding } from "@cashlet-labs/bnd/nostr";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import type { ErrorResponse, PlannedOutputMessage, Request, ResponseFor } from "../shared/messages";
 import type { PageRequest } from "../shared/page-messages";
+import { signMessage, verifyMessage } from "../wallet/signed-message";
 import { allRelayUrls, Identity, PUBLIC_RELAYS, type RelayApi } from "../wallet/identity";
 import { p2pkhLockingBytecode } from "../wallet/indexer";
+import { RateService, type FiatChoice } from "../wallet/rates";
 import { Scanner, type IndexerSource } from "../wallet/scanner";
-import { buildSend, type SendPlan } from "../wallet/send";
+import {
+  loadFeeRate,
+  loadPreferredServer,
+  MAX_FEE_RATE as MAX_SETTING_FEE_RATE,
+  MIN_FEE_RATE as MIN_SETTING_FEE_RATE,
+  saveFeeRate,
+  savePreferredServer,
+} from "../wallet/net-settings";
+import { buildSend, buildSendMax, type SendPlan } from "../wallet/send";
 import {
   LockedError,
   ThrottledError,
@@ -15,9 +25,13 @@ import {
   type WalletSession,
 } from "../wallet/session";
 import type { WalletStore } from "../wallet/store";
+import { TxDetails } from "../wallet/tx-detail";
 import { WrongPasswordError } from "../wallet/vault";
+import { NETWORKS } from "../electrum/servers";
 import { SiteGate } from "./sites";
+import { TokenMetaService, type FetchLike } from "./token-meta";
 import { WizardConnections, type CreateWizardManager } from "./wizard";
+import { WizardDetector } from "./wizard-detect";
 
 /** A network connection the service can scan and broadcast through (ElectrumPool in the extension). */
 export interface Connection extends IndexerSource {
@@ -30,7 +44,8 @@ export interface Connection extends IndexerSource {
 export interface ServiceDeps {
   session: WalletSession;
   settings: KeyValueStore;
-  connect: (network: "mainnet" | "chipnet") => Connection;
+  /** `preferredServer` is the user's choice from the built-in list, to try first. */
+  connect: (network: "mainnet" | "chipnet", preferredServer?: string | null) => Connection;
   openStore: (walletId: string) => Promise<WalletStore>;
   now?: () => number;
   /** Called whenever the auto-lock timer should restart. */
@@ -43,6 +58,8 @@ export interface ServiceDeps {
   onApprovals?: (waiting: number) => void;
   /** Creates the WizardConnect manager. Defaults to the real one, over the relay. */
   wizardManager?: CreateWizardManager;
+  /** Fetches token registries, icons and fiat rates. Defaults to the browser's fetch. */
+  fetch?: FetchLike;
 }
 
 const realRelays: RelayApi = {
@@ -74,6 +91,8 @@ interface Runtime {
   identity: Identity;
   /** WizardConnect dApp connections, opened on first use and closed on lock. */
   wizard: WizardConnections | null;
+  /** Decoded transactions for the detail view, opened on first use. */
+  txDetails: TxDetails | null;
   scan: "idle" | "scanning" | "ready" | "error";
   scanError: string | null;
   /** Satoshis per byte, from the server's relay fee once it is known. */
@@ -95,8 +114,21 @@ export class WalletService {
   >();
 
   private readonly gate: SiteGate;
+  private readonly tokenMeta: TokenMetaService;
+  private readonly rates: RateService;
+  private readonly wizardDetector: WizardDetector;
 
   constructor(private readonly deps: ServiceDeps) {
+    this.tokenMeta = new TokenMetaService(
+      deps.settings,
+      deps.fetch ?? ((url, init) => fetch(url, init)),
+      () => this.now(),
+    );
+    this.rates = new RateService({
+      settings: deps.settings,
+      ...(deps.fetch ? { fetch: deps.fetch } : {}),
+      ...(deps.now ? { now: deps.now } : {}),
+    });
     this.gate = new SiteGate({
       settings: deps.settings,
       unlocked: () => {
@@ -106,6 +138,32 @@ export class WalletService {
       now: () => this.now(),
       ...(deps.onApprovals ? { onChange: deps.onApprovals } : {}),
     });
+    this.wizardDetector = new WizardDetector({
+      gate: this.gate,
+      now: () => this.now(),
+      connect: (uri, origin) => this.wizardConnections().connect(uri, origin),
+    });
+  }
+
+  /**
+   * A WizardConnect link a page showed, with the origin the browser reported.
+   * The user is asked before anything connects. Resolves without telling the page the outcome.
+   */
+  detectWizard(origin: string, uri: unknown, signal?: AbortSignal): Promise<void> {
+    return this.wizardDetector.detect(origin, uri, signal);
+  }
+
+  /** The unlocked wallet's WizardConnect connections, created on first use. */
+  private wizardConnections(): WizardConnections {
+    const runtime = this.active();
+    const { wallet, network } = this.deps.session.current();
+    return (runtime.wizard ??= new WizardConnections(
+      wallet,
+      network,
+      this.gate,
+      (hex, txid) => runtime.connection.broadcast(hex, txid),
+      this.deps.wizardManager,
+    ));
   }
 
   /**
@@ -232,8 +290,37 @@ export class WalletService {
           entries: entries.map(({ txid, height, time }) => ({ txid, height, time })),
         };
       }
+      case "GET_TRANSACTION":
+        return this.transaction(request.txid);
+      case "GET_TOKEN_META":
+        return {
+          ok: true,
+          tokens: await this.tokenMeta.lookup(this.active().connection, request.categories),
+        };
       case "PREPARE_SEND":
-        return this.prepareSend(request.recipients);
+        return this.prepareSend(request.recipients, request.max === true);
+      case "GET_MAX_SEND": {
+        const { plan } = await this.maxPlan(request.address);
+        return { ok: true, value: plan.outputs[0]!.value, fee: plan.fee };
+      }
+      case "GET_NETWORK_SETTINGS": {
+        const { network } = this.deps.session.current();
+        return {
+          ok: true,
+          network,
+          feeRate: await loadFeeRate(this.deps.settings),
+          minFeeRate: MIN_SETTING_FEE_RATE,
+          maxFeeRate: MAX_SETTING_FEE_RATE,
+          servers: [...NETWORKS[network].servers],
+          preferredServer: await loadPreferredServer(this.deps.settings, network),
+        };
+      }
+      case "SET_FEE_RATE":
+        await saveFeeRate(this.deps.settings, request.rate);
+        return { ok: true };
+      case "SET_PREFERRED_SERVER":
+        await savePreferredServer(this.deps.settings, request.network, request.url);
+        return { ok: true };
       case "CONFIRM_SEND":
         return this.confirmSend(request.planId);
       case "REVEAL_MNEMONIC":
@@ -270,6 +357,19 @@ export class WalletService {
         return { ok: true };
       case "SET_AUTO_LOCK":
         await this.deps.settings.set("autoLockMinutes", request.minutes);
+        return { ok: true };
+      case "GET_RATE": {
+        // Test coins have no price, so chipnet wallets never ask a rate source.
+        const testCoins = session.current().network === "chipnet";
+        const choice = await this.rates.choice();
+        const quote =
+          testCoins || choice === "OFF"
+            ? { rate: null, fetchedAt: null }
+            : await this.rates.rate(choice);
+        return { ok: true, currency: choice, testCoins, ...quote };
+      }
+      case "SET_FIAT":
+        await this.rates.setChoice(request.currency as FiatChoice);
         return { ok: true };
       case "IDENTITY_STATUS":
         return { ok: true, ...(await this.active().identity.status()) };
@@ -325,32 +425,42 @@ export class WalletService {
       case "SITES_LIST":
         return {
           ok: true,
-          sites: (await this.gate.sites()).map(({ origin, kinds, connectedAt }) => ({
+          sites: (await this.gate.sites()).map(({ origin, kinds, ciphers, connectedAt }) => ({
             origin,
             kinds,
+            ...(ciphers?.length ? { ciphers } : {}),
             connectedAt,
           })),
         };
       case "SITE_REMOVE":
         await this.gate.removeSite(request.origin);
         return { ok: true };
-      case "WIZARD_CONNECT": {
-        const runtime = this.active();
-        const { wallet, network } = session.current();
-        runtime.wizard ??= new WizardConnections(
-          wallet,
-          network,
-          this.gate,
-          (hex, txid) => runtime.connection.broadcast(hex, txid),
-          this.deps.wizardManager,
-        );
-        return { ok: true, id: runtime.wizard.connect(request.uri) };
-      }
+      case "WIZARD_CONNECT":
+        return { ok: true, id: this.wizardConnections().connect(request.uri) };
       case "WIZARD_LIST":
         return { ok: true, connections: this.active().wizard?.list() ?? [] };
       case "WIZARD_DISCONNECT":
         this.active().wizard?.disconnect(request.id);
         return { ok: true };
+      case "SIGN_MESSAGE": {
+        // The user asked on the wallet's own screen, so an unlocked wallet signs without asking again.
+        const { identity, scanner } = this.active();
+        const { wallet, network } = session.current();
+        const index =
+          request.source === "identity"
+            ? (await identity.keys()).bchIndex
+            : (await scanner.nextAddress(0)).index;
+        return {
+          ok: true,
+          address: wallet.address(0, index, network),
+          signature: signMessage(wallet.privateKey(0, index), request.message),
+        };
+      }
+      case "VERIFY_MESSAGE":
+        return {
+          ok: true,
+          valid: verifyMessage(request.address, request.message, request.signature),
+        };
       case "SERVER_HEALTH": {
         const { connection } = this.active();
         return {
@@ -373,10 +483,11 @@ export class WalletService {
   /** Connect and scan the unlocked wallet. The scan continues in the background. */
   private async start(): Promise<void> {
     const { id, wallet, network } = this.deps.session.current();
+    const preferred = await loadPreferredServer(this.deps.settings, network);
     this.runtime?.scanner.stop();
     this.runtime?.wizard?.close();
     this.runtime?.connection.close();
-    const connection = this.deps.connect(network);
+    const connection = this.deps.connect(network, preferred);
     const store = await this.deps.openStore(id);
     const scanner = new Scanner(wallet, network, connection, store);
     const identity = new Identity(
@@ -394,6 +505,7 @@ export class WalletService {
       scanner,
       identity,
       wizard: null,
+      txDetails: null,
       scan: "scanning",
       scanError: null,
       feeRate: MIN_FEE_RATE,
@@ -419,42 +531,107 @@ export class WalletService {
     );
   }
 
-  private async prepareSend(
-    recipients: Extract<Request, { type: "PREPARE_SEND" }>["recipients"],
-  ): Promise<ResponseFor["PREPARE_SEND"]> {
-    const { wallet, network, id } = this.deps.session.current();
+  /** What one transaction in the wallet's history means for the wallet. */
+  private async transaction(txid: string): Promise<ResponseFor["GET_TRANSACTION"]> {
     const runtime = this.active();
-    const feeRate = runtime.feeRate;
+    const entry = (await runtime.scanner.history()).find((e) => e.txid === txid);
+    if (!entry) throw new Error("this transaction is not in the wallet's history");
+    runtime.txDetails ??= new TxDetails(
+      runtime.connection,
+      this.deps.session.current().network,
+      (scripthash) => runtime.scanner.addressFor(scripthash) !== undefined,
+    );
+    const analysis = await runtime.txDetails.get(txid);
+    const tip = Math.max(0, ...runtime.connection.health().map((s) => s.tip ?? 0));
+    const confirmations = entry.height > 0 && tip >= entry.height ? tip - entry.height + 1 : null;
+    return {
+      ok: true,
+      txid,
+      direction: analysis.direction,
+      net: analysis.net,
+      fee: analysis.fee,
+      size: analysis.size,
+      height: entry.height,
+      time: entry.time,
+      confirmations,
+      tokens: analysis.tokens.map((t) => ({
+        category: t.category,
+        amount: t.amount.toString(),
+        nfts: t.nfts,
+      })),
+      counterparties: analysis.counterparties,
+      receivedOn: analysis.receivedOn,
+      complete: analysis.complete,
+    };
+  }
+
+  /** Fee rate in sat/byte: the user's choice, else the server's relay fee. */
+  private async feeRate(runtime: Runtime): Promise<number> {
+    return (await loadFeeRate(this.deps.settings)) ?? runtime.feeRate;
+  }
+
+  /** What signing a send needs from this wallet. */
+  private signing(runtime: Runtime) {
+    const { wallet } = this.deps.session.current();
     const locate = (scripthash: string) => {
       const address = runtime.scanner.addressFor(scripthash);
       if (!address) throw new Error("an output belongs to an address this wallet does not know");
       return address;
     };
-    const plan = buildSend({
-      network,
-      utxos: await runtime.store.utxos(),
-      recipients: recipients.map((r) => ({
-        address: r.address,
-        value: r.value,
-        ...(r.token
-          ? { token: { category: r.token.category, amount: BigInt(r.token.amount) } }
-          : {}),
-        ...(r.nft ? { nft: r.nft } : {}),
-      })),
-      changeAddress: (await runtime.scanner.nextAddress(1, true)).address,
-      feeRate,
-      keyFor: (utxo) => {
+    return {
+      keyFor: (utxo: { scripthash: string }) => {
         const { chain, index } = locate(utxo.scripthash);
         return {
           privateKey: wallet.privateKey(chain, index),
           publicKey: wallet.addressKey(chain, index).publicKey,
         };
       },
-      lockingBytecodeFor: (utxo) => {
+      lockingBytecodeFor: (utxo: { scripthash: string }) => {
         const { chain, index } = locate(utxo.scripthash);
         return p2pkhLockingBytecode(wallet.addressKey(chain, index).keyHash);
       },
-    });
+    };
+  }
+
+  /** The largest BCH send to an address: all pure BCH coins, no change. */
+  private async maxPlan(address: string): Promise<{ plan: SendPlan }> {
+    const { network } = this.deps.session.current();
+    const runtime = this.active();
+    return {
+      plan: buildSendMax({
+        network,
+        utxos: await runtime.store.utxos(),
+        address,
+        feeRate: await this.feeRate(runtime),
+        ...this.signing(runtime),
+      }),
+    };
+  }
+
+  private async prepareSend(
+    recipients: Extract<Request, { type: "PREPARE_SEND" }>["recipients"],
+    max = false,
+  ): Promise<ResponseFor["PREPARE_SEND"]> {
+    const { network, id } = this.deps.session.current();
+    const runtime = this.active();
+    const feeRate = await this.feeRate(runtime);
+    const plan = max
+      ? (await this.maxPlan(recipients[0]!.address)).plan
+      : buildSend({
+          network,
+          utxos: await runtime.store.utxos(),
+          recipients: recipients.map((r) => ({
+            address: r.address,
+            value: r.value,
+            ...(r.token
+              ? { token: { category: r.token.category, amount: BigInt(r.token.amount) } }
+              : {}),
+            ...(r.nft ? { nft: r.nft } : {}),
+          })),
+          changeAddress: (await runtime.scanner.nextAddress(1, true)).address,
+          feeRate,
+          ...this.signing(runtime),
+        });
     const planId = bytesToHex(crypto.getRandomValues(new Uint8Array(16)));
     const expiresAt = this.now() + PLAN_TTL_MS;
     this.plans.set(planId, { plan, walletId: id, expiresAt });

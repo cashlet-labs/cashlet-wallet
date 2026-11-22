@@ -11,11 +11,35 @@ New wallets use mainnet. To try Cashlet with free test coins, open
 <p>
   <img src="docs/screenshot-home.png" width="190" alt="Home">
   <img src="docs/screenshot-receive.png" width="190" alt="Receive: a token-aware address by default">
+  <img src="docs/screenshot-transaction.png" width="190" alt="Transaction detail">
+  <img src="docs/screenshot-tokens.png" width="190" alt="Tokens">
+  <img src="docs/screenshot-settings.png" width="190" alt="Settings">
   <img src="docs/screenshot-identity.png" width="190" alt="Identity">
   <img src="docs/screenshot-send.png" width="190" alt="Send to an address, npub or did:bnd">
   <img src="docs/screenshot-approval.png" width="190" alt="A site asks for the Nostr key">
   <img src="docs/screenshot-apps.png" width="190" alt="Connected apps">
 </p>
+
+## Features
+
+- Send and receive BCH and CashTokens. Receive shows a token-aware address by
+  default. **Max** sends the whole BCH balance and never touches token coins.
+- Token names, symbols, decimals and icons from each token's on-chain BCMR
+  registry, checked against the hash published on chain.
+- Prices in 12 currencies, or off. Chipnet wallets fetch no prices.
+- Transaction detail: direction, amount, fee, confirmations, where it went,
+  and a link to a block explorer.
+- Settings for the fee rate (1 to 10 sat/byte) and a preferred Electrum server.
+- Several wallets under one password, switched in **Settings → Wallets**.
+- Bitcoin signed messages: sign with your identity or receive address, and
+  verify anyone's.
+- BND identity: publish, rotate and revoke the binding of your address to your
+  Nostr key. Pay anyone by `npub` or `did:bnd`.
+- For websites: a Nostr signer (NIP-07, NIP-04, NIP-44) and BND login, each
+  approved by you.
+- WizardConnect: a site's `wiz://` link is picked up from the page, and you
+  approve the connection and every transaction.
+- Popup, side panel or full-tab views.
 
 ## Install
 
@@ -40,8 +64,9 @@ New wallets use mainnet. To try Cashlet with free test coins, open
    it found before you confirm.
 5. Log in at [bnd.septemlabs.com](https://bnd.septemlabs.com) with the wallet.
    The site gets a signed answer to its challenge, never your keys.
-6. Under **Apps**, connect a dapp with WizardConnect and approve or reject what
-   it asks the wallet to sign.
+6. Open a dapp that offers WizardConnect. Cashlet finds its `wiz://` link and
+   asks whether to connect. You can also paste the link under **Apps**. Every
+   transaction the dapp asks for is shown for approval.
 
 ## Security and privacy
 
@@ -57,6 +82,9 @@ New wallets use mainnet. To try Cashlet with free test coins, open
   spends, and warns about any fee above 10 sat/byte or 1% of the amount.
 - There is no Cashlet server, account or analytics. The wallet talks to
   public Electrum servers for the chain and to Nostr relays for identity.
+  Besides those, the security policy lists exactly three hosts: one IPFS
+  gateway for token registries and icons, and two price sources. Registries
+  hosted elsewhere are not fetched, and those tokens show their short id.
 
 ## For websites
 
@@ -67,12 +95,19 @@ On https pages (and `localhost` for development) the wallet provides:
   signature is approved unless the user chose "don't ask again" for that
   event kind on that site. Profile, follow-list, relay-list, deletion and login
   events always ask. Sites cannot sign BND bindings.
+- `window.nostr.nip04` and `window.nostr.nip44`, each with `encrypt(pubkey, plaintext)`
+  and `decrypt(pubkey, ciphertext)`. The site must be connected first, and each call
+  is approved unless the user chose "don't ask again" for that method on that site.
+  The wallet shows the other key and, when encrypting, the text.
 - `window.bnd.login(challenge)`, which answers a BND login challenge
   (`issueChallenge` in [`@cashlet-labs/bnd`](https://www.npmjs.com/package/@cashlet-labs/bnd))
   with the wallet's identity. The challenge's audience must be on the page's
   own origin. Send the result to your server and check it with `verifyLogin`.
 
 Connected sites are listed, and can be disconnected, under Settings.
+
+Settings also has **Sign a message** and **Verify a message** for Bitcoin Signed Messages
+(a base64 signature that proves an address is yours). Sites cannot ask for these.
 
 ## Development
 

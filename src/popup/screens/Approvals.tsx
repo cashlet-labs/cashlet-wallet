@@ -3,6 +3,7 @@ import type { ResponseFor } from "../../shared/messages";
 import { call } from "../api";
 import { ErrorNotice, Screen } from "../components/common";
 import { poll } from "../errors";
+import { CipherDetails } from "./CipherApproval";
 
 type List = Extract<ResponseFor["APPROVALS_LIST"], { ok: true }>;
 type Approval = List["approvals"][number];
@@ -96,6 +97,19 @@ function Transaction({ tx }: { tx: NonNullable<Approval["transaction"]> }) {
 function Details({ approval, npub }: { approval: Approval; npub: string | null }) {
   if (approval.type === "transaction" && approval.transaction) {
     return <Transaction tx={approval.transaction} />;
+  }
+  if (approval.type === "encrypt" || approval.type === "decrypt")
+    return <CipherDetails approval={approval} />;
+  if (approval.type === "wizard") {
+    return (
+      <div className="card stack">
+        <span>This site wants to connect an app with WizardConnect.</span>
+        <span className="small muted">
+          The app will see all your addresses, balances and history. It cannot spend anything: every
+          transaction is shown here for you to approve.
+        </span>
+      </div>
+    );
   }
   if (approval.type === "connect") {
     return (
@@ -227,7 +241,9 @@ export function Approvals({ onDone }: { onDone: () => void }) {
           <span>
             {approval.type === "connect"
               ? "Remember this site"
-              : "Don't ask again for this kind of event on this site"}
+              : approval.cipher
+                ? `Don't ask again to ${approval.type} with ${approval.cipher.scheme === "nip04" ? "NIP-04" : "NIP-44"} on this site`
+                : "Don't ask again for this kind of event on this site"}
           </span>
         </label>
       )}
@@ -242,16 +258,20 @@ export function Approvals({ onDone }: { onDone: () => void }) {
           disabled={busy}
           onClick={() => void decide(true)}
         >
-          {approval.type === "connect"
+          {approval.type === "connect" || approval.type === "wizard"
             ? "Connect"
             : approval.type === "login"
               ? "Log in"
-              : approval.type === "transaction"
-                ? approval.transaction?.broadcast &&
-                  approval.transaction.signing.count === approval.transaction.inputs
-                  ? "Sign and send"
-                  : "Sign"
-                : "Sign"}
+              : approval.type === "encrypt"
+                ? "Encrypt"
+                : approval.type === "decrypt"
+                  ? "Decrypt"
+                  : approval.type === "transaction"
+                    ? approval.transaction?.broadcast &&
+                      approval.transaction.signing.count === approval.transaction.inputs
+                      ? "Sign and send"
+                      : "Sign"
+                    : "Sign"}
         </button>
       </div>
     </Screen>

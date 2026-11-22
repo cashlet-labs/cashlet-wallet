@@ -34,10 +34,27 @@ async function restore(page: Page) {
 const shot = (page: Page, name: string) => page.screenshot({ path: `docs/screenshot-${name}.png` });
 
 test("screenshots", async ({ context, popup }) => {
-  test.setTimeout(90_000);
+  test.setTimeout(180_000);
   await restore(popup);
-  await popup.waitForTimeout(3000);
+  await expect(popup.locator(".tx-row").first()).toBeVisible({ timeout: 45_000 });
+  await popup.waitForTimeout(4000);
   await shot(popup, "home");
+
+  await popup.getByRole("tab", { name: "Tokens" }).click();
+  await popup.waitForTimeout(3000);
+  await shot(popup, "tokens");
+  await popup.getByRole("tab", { name: "Activity" }).click();
+
+  await popup.locator(".tx-row").first().click();
+  await expect(popup.getByRole("link", { name: /Open in explorer/ })).toBeVisible({
+    timeout: 45_000,
+  });
+  await shot(popup, "transaction");
+  await popup.getByRole("button", { name: "Back" }).click();
+
+  await popup.getByRole("button", { name: "Settings" }).click();
+  await shot(popup, "settings");
+  await popup.getByRole("button", { name: "Back" }).click();
 
   await popup.getByRole("button", { name: "Receive" }).click();
   await expect(popup.getByRole("img", { name: /QR code for bchtest:/ })).toBeVisible();

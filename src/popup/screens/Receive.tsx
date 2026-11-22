@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { parseBch } from "../../wallet/amount";
 import { call } from "../api";
+import { Fiat, useRate } from "../fiat";
 import { CopyButton, ErrorNotice, Qr, Screen } from "../components/common";
 
 export function Receive({ onBack }: { onBack: () => void }) {
@@ -8,6 +9,7 @@ export function Receive({ onBack }: { onBack: () => void }) {
   const [address, setAddress] = useState<string | null>(null);
   const [amount, setAmount] = useState("");
   const [error, setError] = useState<unknown>(null);
+  const quote = useRate();
 
   useEffect(() => {
     call({ type: "GET_RECEIVE_ADDRESS", tokenAware: tokens }).then(
@@ -18,9 +20,10 @@ export function Receive({ onBack }: { onBack: () => void }) {
 
   let amountError: string | null = null;
   let uri = address ?? "";
+  let requested: number | null = null;
   if (address && amount.trim() !== "") {
     try {
-      parseBch(amount);
+      requested = parseBch(amount);
       uri = `${address}?amount=${amount.trim()}`;
     } catch (e) {
       amountError = e instanceof Error ? e.message : "invalid amount";
@@ -58,6 +61,7 @@ export function Receive({ onBack }: { onBack: () => void }) {
               onChange={(e) => setAmount(e.target.value)}
             />
             {amountError && <span className="small muted">{amountError}</span>}
+            <Fiat quote={quote} sats={requested} />
           </label>
           <p className="small muted">
             {tokens

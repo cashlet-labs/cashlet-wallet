@@ -13,7 +13,7 @@ const STATUS: Record<string, string> = {
   disconnected: "Disconnected",
 };
 
-/** WizardConnect: connect a dApp by pasting its wiz:// link. */
+/** WizardConnect: connect a dApp by pasting its wiz:// link, or approve it when a site shows one. */
 export function Apps({ onBack }: { onBack: () => void }) {
   const [uri, setUri] = useState("");
   const [connections, setConnections] = useState<Connection[]>([]);
@@ -79,6 +79,11 @@ export function Apps({ onBack }: { onBack: () => void }) {
                 <span className="small muted" data-testid="app-status">
                   {STATUS[c.status] ?? c.status}
                 </span>
+                {c.origin && (
+                  <span className="small muted" data-testid="app-origin">
+                    From {c.origin}
+                  </span>
+                )}
               </span>
               <button
                 type="button"

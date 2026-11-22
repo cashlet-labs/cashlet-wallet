@@ -2,7 +2,10 @@ import { useCallback, useEffect, useState } from "react";
 import type { ResponseFor } from "../../shared/messages";
 import { call, type Status } from "../api";
 import { CopyButton, ErrorNotice, NewPassword, Screen } from "../components/common";
+import { FIAT_CURRENCIES, type FiatChoice } from "../../wallet/rates";
 import { deleteContact, loadContacts, saveContact, type Contact } from "../contacts";
+import { FeeRate, PreferredServer } from "./NetworkSettings";
+import { SignMessage, VerifyMessage } from "./SignMessage";
 
 type Health = Extract<ResponseFor["SERVER_HEALTH"], { ok: true }>;
 
@@ -18,13 +21,23 @@ export function Settings({
   onChanged: () => void;
 }) {
   const [section, setSection] = useState<
-    "main" | "phrase" | "password" | "servers" | "contacts" | "wallets" | "sites"
+    | "main"
+    | "phrase"
+    | "password"
+    | "servers"
+    | "contacts"
+    | "wallets"
+    | "sites"
+    | "sign"
+    | "verify"
   >("main");
   const back = () => setSection("main");
   if (section === "phrase") return <RevealPhrase onBack={back} />;
   if (section === "password") return <ChangePassword onBack={back} />;
   if (section === "servers") return <Servers onBack={back} />;
   if (section === "sites") return <Sites onBack={back} />;
+  if (section === "sign") return <SignMessage onBack={back} />;
+  if (section === "verify") return <VerifyMessage onBack={back} />;
   if (section === "contacts")
     return <Contacts network={status.network ?? "chipnet"} onBack={back} />;
   if (section === "wallets")
@@ -44,6 +57,12 @@ export function Settings({
         <button type="button" className="wide" onClick={() => setSection("sites")}>
           Connected sites
         </button>
+        <button type="button" className="wide" onClick={() => setSection("sign")}>
+          Sign a message
+        </button>
+        <button type="button" className="wide" onClick={() => setSection("verify")}>
+          Verify a message
+        </button>
         <button type="button" className="wide" onClick={() => setSection("phrase")}>
           Show recovery phrase
         </button>
@@ -54,6 +73,8 @@ export function Settings({
           Network servers
         </button>
         <AutoLock minutes={status.autoLockMinutes} onSaved={onChanged} />
+        <FeeRate />
+        <FiatChoiceSetting />
       </div>
     </Screen>
   );
@@ -98,6 +119,9 @@ function Sites({ onBack }: { onBack: () => void }) {
                   {site.kinds.length === 0
                     ? "Reads your public key; asks before signing"
                     : `Signs event kind${site.kinds.length === 1 ? "" : "s"} ${site.kinds.join(", ")} without asking`}
+                  {site.ciphers?.length
+                    ? `. Allowed to ${site.ciphers.map((c) => c.replace("nostr.", "").replace(".", " ")).join(", ")} without asking`
+                    : ""}
                 </span>
               </span>
               <button
@@ -140,6 +164,48 @@ function AutoLock({ minutes, onSaved }: { minutes: number; onSaved: () => void }
           </option>
         ))}
       </select>
+    </label>
+  );
+}
+
+function FiatChoiceSetting() {
+  const [choice, setChoice] = useState<string | null>(null);
+  const [error, setError] = useState<unknown>(null);
+  useEffect(() => {
+    let current = true;
+    call({ type: "GET_RATE" }).then(
+      (r) => current && setChoice(r.currency),
+      (e: unknown) => current && setError(e),
+    );
+    return () => {
+      current = false;
+    };
+  }, []);
+  return (
+    <label>
+      Show prices in
+      <select
+        value={choice ?? "USD"}
+        disabled={choice === null}
+        onChange={async (e) => {
+          const next = e.target.value as FiatChoice;
+          try {
+            await call({ type: "SET_FIAT", currency: next });
+            setChoice(next);
+            setError(null);
+          } catch (err) {
+            setError(err);
+          }
+        }}
+      >
+        {FIAT_CURRENCIES.map((c) => (
+          <option key={c} value={c}>
+            {c}
+          </option>
+        ))}
+        <option value="OFF">Off</option>
+      </select>
+      <ErrorNotice error={error} />
     </label>
   );
 }
@@ -260,6 +326,7 @@ function Servers({ onBack }: { onBack: () => void }) {
         Cashlet uses public servers and moves to another one when a server is down, on the wrong
         chain, behind the others, or reports a node problem.
       </p>
+      <PreferredServer />
       <ErrorNotice error={error} />
       <ul className="list">
         {health?.servers.map((s) => (

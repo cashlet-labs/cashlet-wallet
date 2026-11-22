@@ -237,4 +237,24 @@ describe("feeRateFrom", () => {
     expect(feeRateFrom("x")).toBe(1);
     expect(feeRateFrom(Number.NaN)).toBe(1);
   });
+
+  it("answers token metadata without waiting, and only while unlocked", async () => {
+    const { service } = setup();
+    const category = "48f29394".padEnd(64, "0");
+    expect(await service.handle({ type: "GET_TOKEN_META", categories: [category] })).toMatchObject({
+      ok: false,
+      code: "LOCKED",
+    });
+    await service.handle({
+      type: "IMPORT_WALLET",
+      mnemonic: VECTOR,
+      password: PASSWORD,
+      network: "chipnet",
+    });
+    const response = await service.handle({ type: "GET_TOKEN_META", categories: [category] });
+    expect(response).toMatchObject({
+      ok: true,
+      tokens: [{ category, state: "pending", name: null, decimals: 0 }],
+    });
+  });
 });
