@@ -469,3 +469,12 @@ input[aria-invalid="true"] {
   display: grid;
   gap: 8px;
 }
+
+/* Send max and fees */
+.amount-row {
+  display: flex;
+  gap: 8px;
+}
+.amount-row input {
+  flex: 1;
+}

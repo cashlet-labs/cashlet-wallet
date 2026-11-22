@@ -3,6 +3,7 @@ import type { ResponseFor } from "../../shared/messages";
 import { call, type Status } from "../api";
 import { CopyButton, ErrorNotice, NewPassword, Screen } from "../components/common";
 import { deleteContact, loadContacts, saveContact, type Contact } from "../contacts";
+import { FeeRate, PreferredServer } from "./NetworkSettings";
 
 type Health = Extract<ResponseFor["SERVER_HEALTH"], { ok: true }>;
 
@@ -54,6 +55,7 @@ export function Settings({
           Network servers
         </button>
         <AutoLock minutes={status.autoLockMinutes} onSaved={onChanged} />
+        <FeeRate />
       </div>
     </Screen>
   );
@@ -260,6 +262,7 @@ function Servers({ onBack }: { onBack: () => void }) {
         Cashlet uses public servers and moves to another one when a server is down, on the wrong
         chain, behind the others, or reports a node problem.
       </p>
+      <PreferredServer />
       <ErrorNotice error={error} />
       <ul className="list">
         {health?.servers.map((s) => (

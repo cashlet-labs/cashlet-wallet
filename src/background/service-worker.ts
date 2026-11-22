@@ -1,6 +1,7 @@
 import type { WebSocketLike } from "../electrum/client";
 import { ElectrumPool } from "../electrum/pool";
 import { NETWORKS } from "../electrum/servers";
+import { orderServers } from "../wallet/net-settings";
 import { isExtensionSender, parseRequest, type ErrorResponse } from "../shared/messages";
 import { pageOrigin, parsePageRequest } from "../shared/page-messages";
 import { WalletSession, type KeyValueStore } from "../wallet/session";
@@ -22,10 +23,10 @@ const stores = new Map<string, Promise<IndexedDbStore>>();
 const service = new WalletService({
   session: new WalletSession(local),
   settings: local,
-  connect: (network) => {
+  connect: (network, preferredServer) => {
     const config = NETWORKS[network];
     const pool = new ElectrumPool({
-      servers: config.servers,
+      servers: orderServers(config.servers, preferredServer ?? null),
       checkpoint: config.checkpoint,
       // The browser's WebSocket has the members WebSocketLike uses; only its handler types differ.
       createSocket: (url) => new WebSocket(url) as unknown as WebSocketLike,
