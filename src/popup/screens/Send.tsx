@@ -5,6 +5,8 @@ import { formatBch, parseBch } from "../../wallet/amount";
 import { call } from "../api";
 import { Bch, CopyButton, ErrorNotice, Screen } from "../components/common";
 import { loadContacts, type Contact } from "../contacts";
+import { tokenAmountText, tokenName, useTokenMeta } from "../token-meta";
+import { parseTokenAmount } from "../../wallet/token-amount";
 
 type Plan = Extract<ResponseFor["PREPARE_SEND"], { ok: true }>;
 type Balance = Extract<ResponseFor["GET_BALANCE"], { ok: true }>;
@@ -77,6 +79,9 @@ export function Send({ network, onBack }: { network: Network; onBack: () => void
   };
 
   const token = balance?.tokens.find((t) => t.category === asset) ?? null;
+  const tokenMeta = useTokenMeta(balance?.tokens.map((t) => t.category) ?? []);
+  const assetMeta = tokenMeta.get(asset);
+  const decimals = assetMeta?.decimals ?? 0;
 
   const review = async () => {
     setBusy(true);
@@ -99,11 +104,9 @@ export function Send({ network, onBack }: { network: Network; onBack: () => void
               value: 0,
               token: {
                 category: asset,
-                amount: /^[1-9][0-9]*$/.test(tokenAmount.trim()) ? tokenAmount.trim() : "invalid",
+                amount: parseTokenAmount(tokenAmount, decimals).toString(),
               },
             };
-      if (recipient.token?.amount === "invalid")
-        throw new RangeError("enter a whole number of tokens");
       setPlan(
         await call({
           type: "PREPARE_SEND",
@@ -162,7 +165,9 @@ export function Send({ network, onBack }: { network: Network; onBack: () => void
                 <dd>
                   {o.token ? (
                     <>
-                      {o.token.nft ? "1 NFT" : `${o.token.amount} tokens`}{" "}
+                      {o.token.nft
+                        ? "1 NFT"
+                        : `${tokenAmountText(o.token.amount, tokenMeta.get(o.token.category))}${tokenMeta.get(o.token.category)?.symbol ? "" : " tokens"}`}{" "}
                       <span className="muted">(+ {o.value} sats)</span>
                     </>
                   ) : (
@@ -188,7 +193,11 @@ export function Send({ network, onBack }: { network: Network; onBack: () => void
                   .map((o, i) => (
                     <div key={i}>
                       {o.token ? (
-                        `${o.token.nft ? "1 NFT" : `${o.token.amount} tokens`}`
+                        o.token.nft ? (
+                          "1 NFT"
+                        ) : (
+                          `${tokenAmountText(o.token.amount, tokenMeta.get(o.token.category))}${tokenMeta.get(o.token.category)?.symbol ? "" : " tokens"}`
+                        )
                       ) : (
                         <Bch sats={o.value} />
                       )}
@@ -256,7 +265,9 @@ export function Send({ network, onBack }: { network: Network; onBack: () => void
               .filter((t) => t.amount !== "0")
               .map((t) => (
                 <option key={t.category} value={t.category}>
-                  Token {t.category.slice(0, 8)}… ({t.amount})
+                  {tokenMeta.get(t.category)?.name
+                    ? `${tokenName(t.category, tokenMeta.get(t.category))} (${tokenAmountText(t.amount, tokenMeta.get(t.category))})`
+                    : `Token ${t.category.slice(0, 8)}… (${t.amount})`}
                 </option>
               ))}
           </select>
@@ -288,13 +299,17 @@ export function Send({ network, onBack }: { network: Network; onBack: () => void
         </label>
       ) : (
         <label>
-          Number of tokens
+          {assetMeta?.symbol ? `Amount (${assetMeta.symbol})` : "Number of tokens"}
           <input
-            inputMode="numeric"
+            inputMode={decimals > 0 ? "decimal" : "numeric"}
             value={tokenAmount}
             onChange={(e) => setTokenAmount(e.target.value)}
           />
-          {token && <span className="small muted">Available: {token.amount}</span>}
+          {token && (
+            <span className="small muted">
+              Available: {tokenAmountText(token.amount, assetMeta)}
+            </span>
+          )}
         </label>
       )}
       <ErrorNotice error={error} />
