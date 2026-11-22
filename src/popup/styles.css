@@ -469,3 +469,55 @@ input[aria-invalid="true"] {
   display: grid;
   gap: 8px;
 }
+
+/* Transaction detail */
+.tx-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  border: 0;
+  background: none;
+  padding: 0;
+  text-align: left;
+  font-weight: 400;
+}
+.tx-what {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.tx-amount {
+  font-variant-numeric: tabular-nums;
+}
+.tx-amount.received {
+  color: var(--mint);
+}
+.tx-amount.self {
+  color: var(--muted);
+}
+.tx-details {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+}
+.tx-field dd {
+  margin: 2px 0 0;
+  overflow-wrap: anywhere;
+}
+.tx-addresses {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+.tx-addresses li {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.tx-id {
+  word-break: break-all;
+}

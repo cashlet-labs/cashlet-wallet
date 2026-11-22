@@ -15,6 +15,7 @@ import {
   type WalletSession,
 } from "../wallet/session";
 import type { WalletStore } from "../wallet/store";
+import { TxDetails } from "../wallet/tx-detail";
 import { WrongPasswordError } from "../wallet/vault";
 import { SiteGate } from "./sites";
 import { WizardConnections, type CreateWizardManager } from "./wizard";
@@ -74,6 +75,8 @@ interface Runtime {
   identity: Identity;
   /** WizardConnect dApp connections, opened on first use and closed on lock. */
   wizard: WizardConnections | null;
+  /** Decoded transactions for the detail view, opened on first use. */
+  txDetails: TxDetails | null;
   scan: "idle" | "scanning" | "ready" | "error";
   scanError: string | null;
   /** Satoshis per byte, from the server's relay fee once it is known. */
@@ -232,6 +235,8 @@ export class WalletService {
           entries: entries.map(({ txid, height, time }) => ({ txid, height, time })),
         };
       }
+      case "GET_TRANSACTION":
+        return this.transaction(request.txid);
       case "PREPARE_SEND":
         return this.prepareSend(request.recipients);
       case "CONFIRM_SEND":
@@ -394,6 +399,7 @@ export class WalletService {
       scanner,
       identity,
       wizard: null,
+      txDetails: null,
       scan: "scanning",
       scanError: null,
       feeRate: MIN_FEE_RATE,
@@ -417,6 +423,40 @@ export class WalletService {
       },
       () => undefined,
     );
+  }
+
+  /** What one transaction in the wallet's history means for the wallet. */
+  private async transaction(txid: string): Promise<ResponseFor["GET_TRANSACTION"]> {
+    const runtime = this.active();
+    const entry = (await runtime.scanner.history()).find((e) => e.txid === txid);
+    if (!entry) throw new Error("this transaction is not in the wallet's history");
+    runtime.txDetails ??= new TxDetails(
+      runtime.connection,
+      this.deps.session.current().network,
+      (scripthash) => runtime.scanner.addressFor(scripthash) !== undefined,
+    );
+    const analysis = await runtime.txDetails.get(txid);
+    const tip = Math.max(0, ...runtime.connection.health().map((s) => s.tip ?? 0));
+    const confirmations = entry.height > 0 && tip >= entry.height ? tip - entry.height + 1 : null;
+    return {
+      ok: true,
+      txid,
+      direction: analysis.direction,
+      net: analysis.net,
+      fee: analysis.fee,
+      size: analysis.size,
+      height: entry.height,
+      time: entry.time,
+      confirmations,
+      tokens: analysis.tokens.map((t) => ({
+        category: t.category,
+        amount: t.amount.toString(),
+        nfts: t.nfts,
+      })),
+      counterparties: analysis.counterparties,
+      receivedOn: analysis.receivedOn,
+      complete: analysis.complete,
+    };
   }
 
   private async prepareSend(

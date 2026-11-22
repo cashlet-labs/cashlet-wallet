@@ -34,6 +34,7 @@ export type Request =
   | { type: "GET_RECEIVE_ADDRESS"; tokenAware: boolean }
   | { type: "GET_BALANCE" }
   | { type: "GET_HISTORY" }
+  | { type: "GET_TRANSACTION"; txid: string }
   | { type: "PREPARE_SEND"; recipients: RecipientMessage[] }
   | { type: "CONFIRM_SEND"; planId: string }
   | { type: "REVEAL_MNEMONIC"; password: string }
@@ -109,6 +110,29 @@ export interface ResponseFor {
   GET_RECEIVE_ADDRESS: { ok: true; address: string; index: number };
   GET_BALANCE: { ok: true; confirmed: number; unconfirmed: number; tokens: TokenBalance[] };
   GET_HISTORY: { ok: true; entries: { txid: string; height: number; time: number | null }[] };
+  GET_TRANSACTION: {
+    ok: true;
+    txid: string;
+    direction: "received" | "sent" | "self";
+    /** Satoshis the wallet gained (positive) or lost (negative), fee included. */
+    net: number;
+    /** Null when a source output is unknown, or for a coinbase. */
+    fee: number | null;
+    size: number;
+    /** Block height; 0 or less while pending. */
+    height: number;
+    time: number | null;
+    /** Null while pending, or when the chain height is not known yet. */
+    confirmations: number | null;
+    /** Changes per category; the amount is a decimal string and may be negative. */
+    tokens: { category: string; amount: string; nfts: number }[];
+    /** Where a send went. The address is null for a script with no address. */
+    counterparties: { address: string | null; value: number }[];
+    /** The wallet's addresses that were paid. */
+    receivedOn: string[];
+    /** False when some source outputs could not be fetched. */
+    complete: boolean;
+  };
   PREPARE_SEND: {
     ok: true;
     planId: string;
@@ -301,6 +325,10 @@ export function parseRequest(value: unknown): Request | { error: string } {
       if (recipients.some((r) => r === null)) return bad;
       return { type: "PREPARE_SEND", recipients: recipients as RecipientMessage[] };
     }
+    case "GET_TRANSACTION":
+      return hasKeys(v, ["type", "txid"]) && typeof v.txid === "string" && HEX32.test(v.txid)
+        ? { type: "GET_TRANSACTION", txid: v.txid }
+        : bad;
     case "CONFIRM_SEND":
       return hasKeys(v, ["type", "planId"]) && text(v.planId, 64)
         ? { type: "CONFIRM_SEND", planId: v.planId }
