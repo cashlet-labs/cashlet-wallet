@@ -6,6 +6,7 @@ import type { ErrorResponse, PlannedOutputMessage, Request, ResponseFor } from "
 import type { PageRequest } from "../shared/page-messages";
 import { allRelayUrls, Identity, PUBLIC_RELAYS, type RelayApi } from "../wallet/identity";
 import { p2pkhLockingBytecode } from "../wallet/indexer";
+import { RateService, type FiatChoice } from "../wallet/rates";
 import { Scanner, type IndexerSource } from "../wallet/scanner";
 import {
   loadFeeRate,
@@ -55,7 +56,7 @@ export interface ServiceDeps {
   onApprovals?: (waiting: number) => void;
   /** Creates the WizardConnect manager. Defaults to the real one, over the relay. */
   wizardManager?: CreateWizardManager;
-  /** Fetches token registries and icons. Defaults to the browser's fetch. */
+  /** Fetches token registries, icons and fiat rates. Defaults to the browser's fetch. */
   fetch?: FetchLike;
 }
 
@@ -112,6 +113,7 @@ export class WalletService {
 
   private readonly gate: SiteGate;
   private readonly tokenMeta: TokenMetaService;
+  private readonly rates: RateService;
 
   constructor(private readonly deps: ServiceDeps) {
     this.tokenMeta = new TokenMetaService(
@@ -119,6 +121,11 @@ export class WalletService {
       deps.fetch ?? ((url, init) => fetch(url, init)),
       () => this.now(),
     );
+    this.rates = new RateService({
+      settings: deps.settings,
+      ...(deps.fetch ? { fetch: deps.fetch } : {}),
+      ...(deps.now ? { now: deps.now } : {}),
+    });
     this.gate = new SiteGate({
       settings: deps.settings,
       unlocked: () => {
@@ -321,6 +328,19 @@ export class WalletService {
         return { ok: true };
       case "SET_AUTO_LOCK":
         await this.deps.settings.set("autoLockMinutes", request.minutes);
+        return { ok: true };
+      case "GET_RATE": {
+        // Test coins have no price, so chipnet wallets never ask a rate source.
+        const testCoins = session.current().network === "chipnet";
+        const choice = await this.rates.choice();
+        const quote =
+          testCoins || choice === "OFF"
+            ? { rate: null, fetchedAt: null }
+            : await this.rates.rate(choice);
+        return { ok: true, currency: choice, testCoins, ...quote };
+      }
+      case "SET_FIAT":
+        await this.rates.setChoice(request.currency as FiatChoice);
         return { ok: true };
       case "IDENTITY_STATUS":
         return { ok: true, ...(await this.active().identity.status()) };

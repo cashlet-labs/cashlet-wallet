@@ -4,6 +4,7 @@ import { allServerUrls } from "../src/electrum/servers";
 import { WIZARD_RELAY } from "../src/background/wizard";
 import { BCMR_GATEWAY } from "../src/wallet/bcmr";
 import { allRelayUrls } from "../src/wallet/identity";
+import { RATE_ORIGINS } from "../src/wallet/rates";
 
 const manifest = JSON.parse(readFileSync(new URL("../manifest.json", import.meta.url), "utf8")) as {
   permissions: string[];
@@ -24,10 +25,10 @@ function directive(name: string): string[] {
 }
 
 describe("manifest.json", () => {
-  it("lets the wallet reach every configured Electrum server, Nostr relay and the one registry gateway, and nothing else", () => {
+  it("lets the wallet reach every configured Electrum server, Nostr relay and the one registry gateway, rate sources, and nothing else", () => {
     const allowed = directive("connect-src").filter((source) => source !== "'self'");
     expect(allowed.sort()).toEqual(
-      [...allServerUrls(), ...allRelayUrls(), WIZARD_RELAY, BCMR_GATEWAY].sort(),
+      [...allServerUrls(), ...allRelayUrls(), WIZARD_RELAY, BCMR_GATEWAY, ...RATE_ORIGINS].sort(),
     );
   });
 

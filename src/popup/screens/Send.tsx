@@ -4,6 +4,7 @@ import { parsePaymentRequest } from "../../wallet/address";
 import { formatBch, parseBch } from "../../wallet/amount";
 import { call } from "../api";
 import { Bch, CopyButton, ErrorNotice, Screen } from "../components/common";
+import { Fiat, useRate } from "../fiat";
 import { loadContacts, type Contact } from "../contacts";
 import { tokenAmountText, tokenName, useTokenMeta } from "../token-meta";
 import { parseTokenAmount } from "../../wallet/token-amount";
@@ -29,6 +30,7 @@ export function Send({ network, onBack }: { network: Network; onBack: () => void
   const [expired, setExpired] = useState(false);
   // True while the amount is the one worked out by Max; editing it turns it off.
   const [maxed, setMaxed] = useState(false);
+  const quote = useRate();
 
   // A prepared send can be confirmed for two minutes; after that it must be reviewed again.
   useEffect(() => {
@@ -82,6 +84,13 @@ export function Send({ network, onBack }: { network: Network; onBack: () => void
   const tokenMeta = useTokenMeta(balance?.tokens.map((t) => t.category) ?? []);
   const assetMeta = tokenMeta.get(asset);
   const decimals = assetMeta?.decimals ?? 0;
+
+  let typedSats: number | null = null;
+  try {
+    typedSats = amount.trim() === "" ? null : parseBch(amount);
+  } catch {
+    // The fiat value shows once the amount is valid.
+  }
 
   const review = async () => {
     setBusy(true);
@@ -171,18 +180,21 @@ export function Send({ network, onBack }: { network: Network; onBack: () => void
                       <span className="muted">(+ {o.value} sats)</span>
                     </>
                   ) : (
-                    <Bch sats={o.value} />
+                    <>
+                      <Bch sats={o.value} /> <Fiat quote={quote} sats={o.value} />
+                    </>
                   )}
                 </dd>
               </div>
             ))}
           <dt>Network fee</dt>
           <dd>
-            {plan.fee} sats <span className="muted">({plan.size} bytes)</span>
+            {plan.fee} sats <span className="muted">({plan.size} bytes)</span>{" "}
+            <Fiat quote={quote} sats={plan.fee} />
           </dd>
           <dt>Total leaving the wallet</dt>
           <dd data-testid="outgoing">
-            <Bch sats={plan.outgoing} />
+            <Bch sats={plan.outgoing} /> <Fiat quote={quote} sats={plan.outgoing} />
           </dd>
           {plan.outputs.some((o) => o.change) && (
             <>
@@ -290,6 +302,7 @@ export function Send({ network, onBack }: { network: Network; onBack: () => void
               Max
             </button>
           </span>
+          <Fiat quote={quote} sats={typedSats} />
           {balance && (
             <span className="small muted">
               Available: <Bch sats={balance.confirmed + balance.unconfirmed} />

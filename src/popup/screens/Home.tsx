@@ -6,6 +6,7 @@ import { TokenIcon } from "../components/TokenIcon";
 import { poll } from "../errors";
 import { TxRow } from "./Transaction";
 import { nftSummary, shortId, tokenAmountText, tokenName, useTokenMeta } from "../token-meta";
+import { Fiat, useRate } from "../fiat";
 
 type Balance = Extract<ResponseFor["GET_BALANCE"], { ok: true }>;
 type History = Extract<ResponseFor["GET_HISTORY"], { ok: true }>["entries"];
@@ -42,6 +43,7 @@ export function Home({
   const [history, setHistory] = useState<History>([]);
   const [tab, setTab] = useState<"activity" | "tokens">("activity");
   const [error, setError] = useState<unknown>(null);
+  const quote = useRate();
   const active = status.wallets.find((w) => w.id === status.activeId);
   const tokenMeta = useTokenMeta(balance?.tokens.map((t) => t.category) ?? []);
 
@@ -87,6 +89,17 @@ export function Home({
             "…"
           )}
         </div>
+        {balance && quote && quote.currency !== "OFF" && (
+          <div className="fiat-line small" data-testid="fiat-balance">
+            {quote.testCoins ? (
+              <span className="muted">Test coins have no value</span>
+            ) : quote.rate === null ? (
+              <span className="muted">—</span>
+            ) : (
+              <Fiat quote={quote} sats={balance.confirmed + balance.unconfirmed} />
+            )}
+          </div>
+        )}
         {balance && balance.unconfirmed !== 0 && (
           <div className="small muted">
             Including <Bch sats={balance.unconfirmed} /> not yet confirmed
