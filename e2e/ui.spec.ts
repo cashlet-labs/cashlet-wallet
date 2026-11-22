@@ -1,4 +1,5 @@
 import type { Page } from "@playwright/test";
+import { encodeKeyExchangeURI, generateKeyExchangeCredentials } from "@wizardconnect/core";
 import { expect, test, VECTOR } from "./fixtures";
 
 // New wallets are on mainnet; chipnet is one extra step, under Developer options.
@@ -268,4 +269,33 @@ test("a second wallet takes the Cashlet password, and Settings switches between 
   await popup.getByRole("button", { name: "Wallets" }).click();
   await popup.getByRole("button", { name: "Switch" }).click();
   await expect(popup.getByText("Chipnet", { exact: true })).toBeVisible();
+});
+
+test("a wiz:// link on a site asks the user, and Apps lists the connection with the site", async ({
+  context,
+  popup,
+}) => {
+  await importVector(popup);
+  const { publicKey, secret } = generateKeyExchangeCredentials();
+  const { uri } = encodeKeyExchangeURI(publicKey, secret);
+  await context.route("https://dapp.example/**", (route) =>
+    route.fulfill({
+      contentType: "text/html",
+      body: `<!doctype html><title>dApp</title><a id="connect" href="${uri}">Connect a wallet</a>`,
+    }),
+  );
+  const site = await context.newPage();
+  // The approval window opens by itself when the link is found.
+  const approval = context.waitForEvent("page");
+  await site.goto("https://dapp.example/");
+  const window1 = await approval;
+  await expect(window1.getByTestId("approval-origin")).toHaveText("https://dapp.example");
+  await expect(window1.getByText("wants to connect an app with WizardConnect")).toBeVisible();
+  await window1.getByRole("button", { name: "Connect" }).click();
+  await window1.waitForEvent("close");
+
+  // The relay may be unreachable here; the attempt is still listed, with its site.
+  await popup.getByRole("button", { name: "Apps" }).click();
+  await expect(popup.getByLabel("Connected apps")).toBeVisible();
+  await expect(popup.getByTestId("app-origin")).toHaveText("From https://dapp.example");
 });

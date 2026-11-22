@@ -18,6 +18,7 @@ import type { WalletStore } from "../wallet/store";
 import { WrongPasswordError } from "../wallet/vault";
 import { SiteGate } from "./sites";
 import { WizardConnections, type CreateWizardManager } from "./wizard";
+import { WizardDetector } from "./wizard-detect";
 
 /** A network connection the service can scan and broadcast through (ElectrumPool in the extension). */
 export interface Connection extends IndexerSource {
@@ -95,6 +96,7 @@ export class WalletService {
   >();
 
   private readonly gate: SiteGate;
+  private readonly wizardDetector: WizardDetector;
 
   constructor(private readonly deps: ServiceDeps) {
     this.gate = new SiteGate({
@@ -106,6 +108,32 @@ export class WalletService {
       now: () => this.now(),
       ...(deps.onApprovals ? { onChange: deps.onApprovals } : {}),
     });
+    this.wizardDetector = new WizardDetector({
+      gate: this.gate,
+      now: () => this.now(),
+      connect: (uri, origin) => this.wizardConnections().connect(uri, origin),
+    });
+  }
+
+  /**
+   * A WizardConnect link a page showed, with the origin the browser reported.
+   * The user is asked before anything connects. Resolves without telling the page the outcome.
+   */
+  detectWizard(origin: string, uri: unknown, signal?: AbortSignal): Promise<void> {
+    return this.wizardDetector.detect(origin, uri, signal);
+  }
+
+  /** The unlocked wallet's WizardConnect connections, created on first use. */
+  private wizardConnections(): WizardConnections {
+    const runtime = this.active();
+    const { wallet, network } = this.deps.session.current();
+    return (runtime.wizard ??= new WizardConnections(
+      wallet,
+      network,
+      this.gate,
+      (hex, txid) => runtime.connection.broadcast(hex, txid),
+      this.deps.wizardManager,
+    ));
   }
 
   /**
@@ -334,18 +362,8 @@ export class WalletService {
       case "SITE_REMOVE":
         await this.gate.removeSite(request.origin);
         return { ok: true };
-      case "WIZARD_CONNECT": {
-        const runtime = this.active();
-        const { wallet, network } = session.current();
-        runtime.wizard ??= new WizardConnections(
-          wallet,
-          network,
-          this.gate,
-          (hex, txid) => runtime.connection.broadcast(hex, txid),
-          this.deps.wizardManager,
-        );
-        return { ok: true, id: runtime.wizard.connect(request.uri) };
-      }
+      case "WIZARD_CONNECT":
+        return { ok: true, id: this.wizardConnections().connect(request.uri) };
       case "WIZARD_LIST":
         return { ok: true, connections: this.active().wizard?.list() ?? [] };
       case "WIZARD_DISCONNECT":

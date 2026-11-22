@@ -469,3 +469,8 @@ input[aria-invalid="true"] {
   display: grid;
   gap: 8px;
 }
+
+/* WizardConnect detection */
+.list [data-testid="app-origin"] {
+  overflow-wrap: anywhere;
+}

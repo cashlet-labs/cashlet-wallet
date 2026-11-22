@@ -23,6 +23,17 @@
       "matches": ["https://*/*", "http://localhost/*", "http://127.0.0.1/*"],
       "js": ["src/content/bridge.ts"],
       "run_at": "document_start"
+    },
+    {
+      "matches": ["https://*/*", "http://localhost/*", "http://127.0.0.1/*"],
+      "js": ["src/content/wizard-main.ts"],
+      "run_at": "document_idle",
+      "world": "MAIN"
+    },
+    {
+      "matches": ["https://*/*", "http://localhost/*", "http://127.0.0.1/*"],
+      "js": ["src/content/wizard-detect.ts"],
+      "run_at": "document_idle"
     }
   ],
   "action": {

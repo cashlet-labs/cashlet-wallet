@@ -9,7 +9,7 @@ import type { KeyValueStore } from "../wallet/session";
 export interface ApprovalView {
   id: string;
   origin: string;
-  type: "connect" | "sign" | "login" | "transaction";
+  type: "connect" | "sign" | "login" | "transaction" | "wizard";
   createdAt: number;
   expiresAt: number;
   /** The exact event that will be signed (the wallet adds pubkey, id and signature). */

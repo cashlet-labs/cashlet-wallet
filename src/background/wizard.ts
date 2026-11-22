@@ -59,6 +59,8 @@ export interface WizardConnectionView {
   name: string | null;
   status: string;
   connectedAt: number;
+  /** The site whose link the user approved, or null when the user pasted the link. */
+  origin: string | null;
 }
 
 const CHAINS = {
@@ -71,6 +73,8 @@ export class WizardConnections {
   private readonly manager: WizardManager;
   /** `${connectionId}:${sequence}` → approval ID, so a cancelled request leaves the screen. */
   private readonly approvals = new Map<string, string>();
+  /** Connection ID → the site that showed the link, for links found on a page. */
+  private readonly origins = new Map<string, string>();
 
   constructor(
     private readonly wallet: HdWallet,
@@ -99,8 +103,10 @@ export class WizardConnections {
     this.manager.on("remoteDisconnect", (id) => this.dropRequests(id));
   }
 
-  connect(uri: string): string {
-    return this.manager.connect(checkWizardUri(uri));
+  connect(uri: string, origin: string | null = null): string {
+    const id = this.manager.connect(checkWizardUri(uri));
+    if (origin !== null) this.origins.set(id, origin);
+    return id;
   }
 
   list(): WizardConnectionView[] {
@@ -109,11 +115,13 @@ export class WizardConnections {
       name: c.dappName,
       status: c.status.status,
       connectedAt: c.connectedAt,
+      origin: this.origins.get(c.id) ?? null,
     }));
   }
 
   disconnect(id: string): void {
     this.dropRequests(id);
+    this.origins.delete(id);
     this.manager.disconnect(id);
   }
 
