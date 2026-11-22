@@ -3,6 +3,7 @@ import type { ResponseFor } from "../../shared/messages";
 import { call, type Status } from "../api";
 import { Bch, ErrorNotice } from "../components/common";
 import { poll } from "../errors";
+import { TxRow } from "./Transaction";
 
 type Balance = Extract<ResponseFor["GET_BALANCE"], { ok: true }>;
 type History = Extract<ResponseFor["GET_HISTORY"], { ok: true }>["entries"];
@@ -25,6 +26,7 @@ export function Home({
   onIdentity,
   onApps,
   onBackup,
+  onTransaction,
 }: {
   status: Status;
   onSend: () => void;
@@ -32,6 +34,7 @@ export function Home({
   onIdentity: () => void;
   onApps: () => void;
   onBackup: () => void;
+  onTransaction: (txid: string) => void;
 }) {
   const [balance, setBalance] = useState<Balance | null>(null);
   const [history, setHistory] = useState<History>([]);
@@ -132,8 +135,11 @@ export function Home({
           <ul className="list" aria-label="Transactions">
             {history.map((entry) => (
               <li key={entry.txid}>
-                <code title={entry.txid}>{short(entry.txid)}</code>
-                <span className="small muted">{when(entry.time, entry.height)}</span>
+                <TxRow
+                  txid={entry.txid}
+                  when={when(entry.time, entry.height)}
+                  onOpen={onTransaction}
+                />
               </li>
             ))}
           </ul>
