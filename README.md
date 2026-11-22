@@ -44,7 +44,7 @@ New wallets use mainnet. To try Cashlet with free test coins, open
 ## Install
 
 1. Download `cashlet.zip` from the
-   [releases page](https://github.com/cashlet-labs/cashlet-wallet/releases) and
+   [latest release](https://github.com/cashlet-labs/cashlet-wallet/releases/latest) and
    unzip it.
 2. Open `chrome://extensions`, turn on **Developer mode**, choose
    **Load unpacked** and select the unzipped folder.
