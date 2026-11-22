@@ -17,6 +17,7 @@ import {
 import type { WalletStore } from "../wallet/store";
 import { WrongPasswordError } from "../wallet/vault";
 import { SiteGate } from "./sites";
+import { WizardConnections, type CreateWizardManager } from "./wizard";
 
 /** A network connection the service can scan and broadcast through (ElectrumPool in the extension). */
 export interface Connection extends IndexerSource {
@@ -40,6 +41,8 @@ export interface ServiceDeps {
   resolvePayee?: (target: string, relays: readonly string[]) => Promise<PayeeResult>;
   /** Called whenever the number of site requests waiting for the user changes. */
   onApprovals?: (waiting: number) => void;
+  /** Creates the WizardConnect manager. Defaults to the real one, over the relay. */
+  wizardManager?: CreateWizardManager;
 }
 
 const realRelays: RelayApi = {
@@ -69,6 +72,8 @@ interface Runtime {
   store: WalletStore;
   scanner: Scanner;
   identity: Identity;
+  /** WizardConnect dApp connections, opened on first use and closed on lock. */
+  wizard: WizardConnections | null;
   scan: "idle" | "scanning" | "ready" | "error";
   scanError: string | null;
   /** Satoshis per byte, from the server's relay fee once it is known. */
@@ -124,6 +129,7 @@ export class WalletService {
     this.deps.session.lock();
     this.plans.clear();
     this.runtime?.scanner.stop();
+    this.runtime?.wizard?.close();
     this.runtime?.connection.close();
     this.runtime = null;
   }
@@ -318,6 +324,23 @@ export class WalletService {
       case "SITE_REMOVE":
         await this.gate.removeSite(request.origin);
         return { ok: true };
+      case "WIZARD_CONNECT": {
+        const runtime = this.active();
+        const { wallet, network } = session.current();
+        runtime.wizard ??= new WizardConnections(
+          wallet,
+          network,
+          this.gate,
+          (hex, txid) => runtime.connection.broadcast(hex, txid),
+          this.deps.wizardManager,
+        );
+        return { ok: true, id: runtime.wizard.connect(request.uri) };
+      }
+      case "WIZARD_LIST":
+        return { ok: true, connections: this.active().wizard?.list() ?? [] };
+      case "WIZARD_DISCONNECT":
+        this.active().wizard?.disconnect(request.id);
+        return { ok: true };
       case "SERVER_HEALTH": {
         const { connection } = this.active();
         return {
@@ -341,6 +364,7 @@ export class WalletService {
   private async start(): Promise<void> {
     const { id, wallet, network } = this.deps.session.current();
     this.runtime?.scanner.stop();
+    this.runtime?.wizard?.close();
     this.runtime?.connection.close();
     const connection = this.deps.connect(network);
     const store = await this.deps.openStore(id);
@@ -359,6 +383,7 @@ export class WalletService {
       store,
       scanner,
       identity,
+      wizard: null,
       scan: "scanning",
       scanError: null,
       feeRate: MIN_FEE_RATE,

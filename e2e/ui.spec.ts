@@ -210,3 +210,23 @@ test("a site gets the Nostr key and a signature only after the user approves", a
   await window3.getByRole("button", { name: "Reject" }).click();
   expect(await rejected).toBe("the user rejected the request");
 });
+
+test("the wallet opens in a full tab, and the support page shows the project address", async ({
+  context,
+  popup,
+}) => {
+  await importVector(popup);
+  const opened = context.waitForEvent("page");
+  await popup.getByRole("button", { name: "Open in a full tab" }).click();
+  const tab = await opened;
+  await tab.waitForLoadState();
+  expect(tab.url()).toContain("view=tab");
+  await expect(tab.getByRole("button", { name: "Send", exact: true })).toBeVisible();
+  await expect(tab.getByRole("button", { name: "Open in a full tab" })).toHaveCount(0);
+  await expect(tab.getByRole("button", { name: "Open in the side panel" })).toBeVisible();
+  await tab.getByRole("button", { name: /Support Cashlet/ }).click();
+  await expect(tab.getByTestId("support-address")).toHaveText(
+    "bitcoincash:zpwd6edurja89cdq7hppvzq6xxzj5ct58uqf9czcx9",
+  );
+  await expect(tab.getByRole("img", { name: /support address/ })).toBeVisible();
+});

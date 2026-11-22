@@ -1,6 +1,7 @@
 import { bytesToHex } from "@noble/hashes/utils.js";
 import type { AuthLevel, UnsignedEvent } from "@cashlet-labs/bnd";
 import { rememberable, type PageRequest } from "../shared/page-messages";
+import type { DappTxSummary } from "../wallet/dapp-sign";
 import type { Identity } from "../wallet/identity";
 import type { KeyValueStore } from "../wallet/session";
 
@@ -8,12 +9,14 @@ import type { KeyValueStore } from "../wallet/session";
 export interface ApprovalView {
   id: string;
   origin: string;
-  type: "connect" | "sign" | "login";
+  type: "connect" | "sign" | "login" | "transaction";
   createdAt: number;
   expiresAt: number;
   /** The exact event that will be signed (the wallet adds pubkey, id and signature). */
   event: UnsignedEvent | null;
   login: { audience: string; level: AuthLevel; expiresAt: number } | null;
+  /** A dApp transaction (WizardConnect), checked and summarised. */
+  transaction: DappTxSummary | null;
   /** Whether "don't ask again" may be offered for this request. */
   rememberable: boolean;
 }
@@ -38,7 +41,9 @@ export interface GateDeps {
 
 interface Pending {
   view: ApprovalView;
-  request: PageRequest;
+  /** A web page's request, or what to run for any other approval. */
+  request: PageRequest | null;
+  run: (() => Promise<unknown>) | null;
   resolve: (value: unknown) => void;
   reject: (error: Error) => void;
   timer: ReturnType<typeof setTimeout>;
@@ -82,7 +87,42 @@ export class SiteGate {
     if (request.method === "nostr.getRelays") return {};
     const allowed = await this.allowedWithoutAsking(origin, request);
     if (allowed) return this.perform(origin, request);
-    return this.enqueue(origin, request, signal);
+    const view = this.view(origin, request);
+    if (signal?.aborted) return Promise.reject(new SiteError("the page was closed"));
+    const queued = this.add(view, request, null);
+    if (!queued.ok) return Promise.reject(new SiteError(queued.error));
+    signal?.addEventListener("abort", () =>
+      this.finish(queued.id, new SiteError("the page was closed")),
+    );
+    return queued.result;
+  }
+
+  /**
+   * Queue something other than a page request, for example a dApp transaction.
+   * `run` signs it once the user approves; nothing is remembered.
+   */
+  queue(
+    view: Pick<ApprovalView, "origin" | "type" | "transaction">,
+    run: () => Promise<unknown>,
+  ): { ok: true; id: string; result: Promise<unknown> } | { ok: false; error: string } {
+    return this.add(
+      {
+        ...view,
+        id: "",
+        createdAt: 0,
+        expiresAt: 0,
+        event: null,
+        login: null,
+        rememberable: false,
+      },
+      null,
+      run,
+    );
+  }
+
+  /** Withdraw a waiting request, for example when a dApp cancels it. */
+  cancel(id: string, reason: string): void {
+    this.finish(id, new SiteError(reason));
   }
 
   /** True when the wallet is unlocked and the user already allowed this request for this site. */
@@ -115,18 +155,9 @@ export class SiteGate {
     }
   }
 
-  private enqueue(origin: string, request: PageRequest, signal?: AbortSignal): Promise<unknown> {
-    if (signal?.aborted) return Promise.reject(new SiteError("the page was closed"));
-    if (this.waiting.size >= MAX_WAITING)
-      return Promise.reject(new SiteError("too many requests are waiting for the user"));
-    const fromSite = [...this.waiting.values()].filter((p) => p.view.origin === origin).length;
-    if (fromSite >= MAX_WAITING_PER_SITE)
-      return Promise.reject(new SiteError("this site has too many requests waiting"));
-
-    const id = bytesToHex(crypto.getRandomValues(new Uint8Array(16)));
-    const createdAt = this.deps.now();
-    const view: ApprovalView = {
-      id,
+  private view(origin: string, request: PageRequest): ApprovalView {
+    return {
+      id: "",
       origin,
       type:
         request.method === "nostr.signEvent"
@@ -134,8 +165,8 @@ export class SiteGate {
           : request.method === "bnd.login"
             ? "login"
             : "connect",
-      createdAt,
-      expiresAt: createdAt + APPROVAL_TTL_MS,
+      createdAt: 0,
+      expiresAt: 0,
       event: request.method === "nostr.signEvent" ? request.event : null,
       login:
         request.method === "bnd.login"
@@ -145,21 +176,44 @@ export class SiteGate {
               expiresAt: request.challenge.expiresAt,
             }
           : null,
+      transaction: null,
       rememberable:
         request.method === "nostr.getPublicKey" ||
         (request.method === "nostr.signEvent" && rememberable(request.event.kind)),
     };
-    return new Promise((resolve, reject) => {
+  }
+
+  private add(
+    template: ApprovalView,
+    request: PageRequest | null,
+    run: (() => Promise<unknown>) | null,
+  ): { ok: true; id: string; result: Promise<unknown> } | { ok: false; error: string } {
+    this.expire();
+    if (this.waiting.size >= MAX_WAITING)
+      return { ok: false, error: "too many requests are waiting for the user" };
+    const fromSite = [...this.waiting.values()].filter(
+      (p) => p.view.origin === template.origin,
+    ).length;
+    if (fromSite >= MAX_WAITING_PER_SITE)
+      return { ok: false, error: "this site has too many requests waiting" };
+
+    const id = bytesToHex(crypto.getRandomValues(new Uint8Array(16)));
+    const createdAt = this.deps.now();
+    const view: ApprovalView = {
+      ...template,
+      id,
+      createdAt,
+      expiresAt: createdAt + APPROVAL_TTL_MS,
+    };
+    const result = new Promise<unknown>((resolve, reject) => {
       const timer = setTimeout(
         () => this.finish(id, new SiteError("the request timed out")),
         APPROVAL_TTL_MS,
       );
-      this.waiting.set(id, { view, request, resolve, reject, timer });
-      signal?.addEventListener("abort", () =>
-        this.finish(id, new SiteError("the page was closed")),
-      );
-      this.changed();
+      this.waiting.set(id, { view, request, run, resolve, reject, timer });
     });
+    this.changed();
+    return { ok: true, id, result };
   }
 
   /** Remove a waiting request, answering the page with `error` or `result`. */
@@ -209,12 +263,14 @@ export class SiteGate {
     const { origin } = pending.view;
     let result: unknown;
     try {
-      result = await this.perform(origin, pending.request);
+      result = pending.run
+        ? await pending.run()
+        : await this.perform(origin, pending.request as PageRequest);
     } catch (error) {
       this.finish(id, error instanceof Error ? error : new SiteError("signing failed"));
       throw error;
     }
-    if (remember && pending.view.rememberable) {
+    if (remember && pending.view.rememberable && pending.request) {
       const all = await this.permissions(walletId);
       const publicKey = await identity.nostrPublicKey();
       const site =
@@ -234,6 +290,7 @@ export class SiteGate {
   /** After an unlock: answer the waiting requests the user already allowed. */
   async refresh(): Promise<void> {
     for (const [id, pending] of [...this.waiting]) {
+      if (!pending.request) continue;
       if (await this.allowedWithoutAsking(pending.view.origin, pending.request)) {
         try {
           this.finish(id, null, await this.perform(pending.view.origin, pending.request));
