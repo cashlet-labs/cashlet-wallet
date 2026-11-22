@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { call, type Status } from "./api";
 import { ErrorNotice, Screen } from "./components/common";
+import { Received } from "./components/Received";
 import { poll } from "./errors";
 import { Approvals } from "./screens/Approvals";
 import { Apps } from "./screens/Apps";
@@ -205,6 +206,9 @@ export function App() {
         )}
       </header>
       <main>{body}</main>
+      {status?.unlocked && status.activeId && !approvalWindow && (
+        <Received walletId={status.activeId} scanning={status.scan === "scanning"} />
+      )}
       <footer className="support-link">
         <button type="button" className="link" onClick={() => setView("support")}>
           Open source · Support Cashlet

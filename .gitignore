@@ -14,3 +14,7 @@ coverage/
 *.local.md
 playwright-report/
 test-results/
+
+# Screen-recording demo (local only)
+scripts/demo*
+.demo-profile*/

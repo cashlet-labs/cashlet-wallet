@@ -1,6 +1,6 @@
 {
   "name": "cashlet-wallet",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "description": "Cashlet: a self-custodial Bitcoin Cash wallet for the browser, with CashTokens, Nostr signing and BND identity",
   "type": "module",

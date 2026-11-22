@@ -582,3 +582,45 @@ textarea {
 .list [data-testid="app-origin"] {
   overflow-wrap: anywhere;
 }
+
+/* Received notice */
+.toast {
+  position: fixed;
+  left: 12px;
+  right: 12px;
+  bottom: 16px;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--mint);
+  border-radius: 14px;
+  background: var(--panel);
+  box-shadow: 0 10px 30px rgb(0 0 0 / 45%);
+  animation: toast-in 0.25s ease-out;
+}
+.toast > span:nth-child(2) {
+  flex: 1;
+}
+.toast-mark {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--mint);
+  color: #04110b;
+  font-weight: 700;
+}
+@keyframes toast-in {
+  from {
+    transform: translateY(12px);
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .toast {
+    animation: none;
+  }
+}
